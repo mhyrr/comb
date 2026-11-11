@@ -18,6 +18,7 @@ import {
   findClaudeBin,
   isEnded,
   listLiveSessions,
+  relayMessage,
   runProcess,
   startBackground,
   type LiveSession,
@@ -61,8 +62,7 @@ const DEFAULT_CHECKLIST = `# Checklist
 Each time you wake:
 
 1. Read what arrived (a message, a child's report) and decide what it needs.
-2. Check on your children with \`agent_list\`. A child that is gone without a
-   report died; decide whether to restart it, replace it, or tell your parent.
+2. If you are waiting on a child, ask it with \`agent_send\`.
 3. Append to log.md what you did and why.
 `;
 
@@ -78,7 +78,7 @@ export async function createWorkspace(dir: string, name: string, charter: string
 export function agentPreamble(a: { name: string; dir: string; parent: string }): string {
   const parentLine = a.parent === GREG
     ? `Your parent is Greg. He reads your reports/ and log.md and may message you directly. Put anything that needs him in a report.`
-    : `Your parent is the agent "${a.parent}". Reach it with SendMessage to "${a.parent}" (ListAgents shows names). Tell it when you finish, are stuck, have a question, or have an idea.`;
+    : `Your parent is the agent "${a.parent}". Tell it with \`agent_send\` when you finish, are stuck, have a question, or have an idea.`;
   return `# comb agent: ${a.name}
 
 You are the comb agent "${a.name}", a long-lived background session. Your
@@ -88,18 +88,20 @@ workspace is ${a.dir}. Write only inside it and inside the repo you work in.
 - checklist.md: what to look at each time you wake.
 - log.md: append one line per thing you do, as \`- <ISO time> what, and why\`.
 - memory/: your own notes. Keep what matters there, not in your context. Your
-  session can be cleared, or restarted from this folder.
+  session sleeps when idle and wakes with its history, but it can also be
+  restarted from this folder alone.
 - reports/: when you finish a piece of work, write one file named
-  YYYY-MM-DD-<slug>.md: what you did, the result, what is left. A session that
-  ends without a report is treated as dead.
+  YYYY-MM-DD-<slug>.md: what you did, the result, what is left. Not for
+  answers to questions; those go back as a message.
 
 ${parentLine}
 
 When unsure, decide, get a second opinion, or go up to your parent with your
-recommendation. To start a child agent for a piece of work, use the comb
-\`agent_start\` tool; reach children with SendMessage by name. \`agent_list\`
-shows every comb agent and whether its session is alive. Project memory and
-tickets are shared through the hive MCP tools.
+recommendation. Message anyone, agent or session, with the comb \`agent_send\`
+tool: it reaches them whether they are working or asleep. When a message says
+who it is from, reply with \`agent_send\` to that name. \`agent_list\` is the
+roster. To make a new agent for a piece of work, use \`agent_start\` with a
+charter. Project memory and tickets are shared through the hive MCP tools.
 
 Code changes happen on your own branch or worktree. Never merge, never push.
 External actions follow TRUST.md: ask through your parent.
@@ -158,7 +160,6 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
   await ensureCombScaffold(home);
   const dir = agentDir(name, home);
   const exists = existsSync(join(dir, "charter.md"));
-  const parent = opts.parent ?? GREG;
   const run = opts.run ?? runProcess;
   const claude = opts.claudeBin ?? findClaudeBin();
 
@@ -172,6 +173,7 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
   }
 
   const previous = exists ? await readAgentSession(name, home) : null;
+  const parent = opts.parent ?? previous?.parent ?? GREG;
   // An ended session stays listed (as "done", or as a stale "blocked" after
   // the daemon retires it); only a live one with this name is a clash.
   const live = await listLiveSessions(claude, run);
@@ -248,10 +250,10 @@ function expandHome(path: string): string {
 export type AgentStatus = {
   name: string;
   parent: string | null;
-  /** working / idle / blocked from the harness, or "gone" when the session is not live. */
-  state: string;
-  cwd: string | null;
-  reports: number;
+  /** "working" while it is on a turn; otherwise "ready". A message reaches it either way. */
+  state: "working" | "ready";
+  /** The first line of its charter. */
+  about: string | null;
   lastLog: string | null;
 };
 
@@ -270,28 +272,27 @@ export async function listAgents(opts: { home?: string; claudeBin?: string; run?
     const dir = join(root, name);
     const session = await readAgentSession(name, home);
     const row = session ? bySession.get(session.sessionId) : undefined;
-    const reportsDir = join(dir, "reports");
-    const reports = existsSync(reportsDir) ? readdirSync(reportsDir).filter((f) => f.endsWith(".md")).length : 0;
     out.push({
       name,
       parent: session?.parent ?? null,
-      state: row ? displayState(row) : "gone",
-      cwd: session?.cwd ?? null,
-      reports,
+      state: row && isWorking(row) ? "working" : "ready",
+      about: await firstLine(join(dir, "charter.md")),
       lastLog: await lastLogLine(join(dir, "log.md")),
     });
   }
   return out;
 }
 
-/**
- * Claude reports a waiting session as state "blocked", status "idle". Show
- * "idle" for that; keep the end states ("done", "failed") as they are.
- */
-function displayState(row: LiveSession): string {
-  if (row.state === "failed") return "failed";
-  if (isEnded(row)) return "done";
-  return row.status ?? row.state ?? "live";
+function isWorking(row: LiveSession): boolean {
+  if (isEnded(row)) return false;
+  return row.status === "busy" || row.status === "working" || row.state === "working";
+}
+
+async function firstLine(path: string): Promise<string | null> {
+  if (!existsSync(path)) return null;
+  const line = (await readFile(path, "utf-8")).split("\n").map((l) => l.replace(/^#+\s*/, "").trim()).find(Boolean);
+  if (!line) return null;
+  return line.length > 100 ? line.slice(0, 99) + "…" : line;
 }
 
 async function lastLogLine(path: string): Promise<string | null> {
@@ -304,8 +305,60 @@ export function formatAgentList(rows: AgentStatus[]): string {
   if (rows.length === 0) return "No comb agents yet.";
   return rows
     .map((r) => {
-      const head = `${r.name}  [${r.state}]  parent: ${r.parent ?? "?"}  reports: ${r.reports}`;
-      return r.lastLog ? `${head}\n    ${r.lastLog}` : head;
+      const head = `${r.name}  [${r.state}]${r.about ? `  ${r.about}` : ""}`;
+      return r.lastLog ? `${head}\n    last: ${r.lastLog}` : head;
     })
     .join("\n");
+}
+
+export type SendOpts = {
+  name: string;
+  message: string;
+  /** Session name to reply to. Omitted, the agent is not asked to reply. */
+  from?: string | null;
+  home?: string;
+  claudeBin?: string;
+  run?: Run;
+  wait?: (ms: number) => Promise<void>;
+};
+
+/**
+ * Delivers a message to an agent whatever its session is doing. A live
+ * session gets it through the relay; an ended one is resumed with the
+ * message as its prompt, so it wakes with its history and the message.
+ */
+export async function sendToAgent(opts: SendOpts): Promise<{ woke: boolean; session: AgentSession | null }> {
+  const name = opts.name;
+  const home = opts.home ?? resolveCombHome();
+  const run = opts.run ?? runProcess;
+  const claude = opts.claudeBin ?? findClaudeBin();
+  const text = opts.from
+    ? `Message from ${opts.from}. Reply with the comb agent_send tool to "${opts.from}".\n\n${opts.message}`
+    : opts.message;
+
+  if (!NAME_RE.test(name) || !existsSync(join(agentDir(name, home), "charter.md"))) {
+    // Not an agent: a live session by that name, such as Greg's, still gets it.
+    const session = (await listLiveSessions(claude, run)).find((s) => s.name === opts.name && !isEnded(s));
+    if (!session) {
+      throw new UsageError(`There is no agent or session named "${opts.name}". agent_list shows the agents; agent_start makes a new one.`);
+    }
+    await relayMessage(claude, opts.name, text, run);
+    return { woke: false, session: null };
+  }
+
+  const previous = await readAgentSession(name, home);
+  const row = previous
+    ? (await listLiveSessions(claude, run)).find((s) => s.sessionId === previous.sessionId)
+    : undefined;
+  if (previous && row && !isEnded(row)) {
+    await relayMessage(claude, name, text, run);
+    await appendFile(
+      join(agentDir(name, home), "log.md"),
+      `- ${new Date().toISOString()} message from ${opts.from ?? "unknown"} delivered\n`,
+      "utf-8",
+    );
+    return { woke: false, session: previous };
+  }
+  const { session } = await startAgent({ name, prompt: text, home, claudeBin: claude, run, wait: opts.wait });
+  return { woke: true, session };
 }

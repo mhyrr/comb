@@ -5,7 +5,7 @@
  */
 import { readFile } from "node:fs/promises";
 
-import { formatAgentList, listAgents, startAgent } from "./agents";
+import { formatAgentList, listAgents, sendToAgent, startAgent } from "./agents";
 import { UsageError } from "./errors";
 import { combInit } from "./init";
 
@@ -15,11 +15,11 @@ Usage:
   comb init                      Create ~/.comb and Maya's workspace; link comb-handoff
   comb start <name> --charter "<text>" [--cwd DIR] [--worktree] [--prompt "<text>"]
   comb start <name> --charter-file PATH [...]
-  comb start <name>              Restart an existing agent from its workspace
-  comb list                      Every agent, its state, reports and last log line
+  comb list                      The roster: each agent, working or ready, what it is for
+  comb send <name> "<message>"   Message an agent; an asleep one wakes with it
 
 Agents are Claude Code background sessions. Watch one with: claude attach <id>
-Message one from any Claude session with SendMessage, by its name.`;
+From a Claude session, use the comb MCP tools: agent_list, agent_send, agent_start.`;
 
 async function main(args: string[]): Promise<void> {
   const [cmd, ...rest] = args;
@@ -33,6 +33,13 @@ async function main(args: string[]): Promise<void> {
   }
   if (cmd === "list") {
     console.log(formatAgentList(await listAgents()));
+    return;
+  }
+  if (cmd === "send") {
+    const [name, ...words] = rest;
+    if (!name || words.length === 0) throw new UsageError(usage);
+    const { woke } = await sendToAgent({ name, message: words.join(" ") });
+    console.log(woke ? `${name} was asleep and is waking with the message.` : `Delivered to ${name}.`);
     return;
   }
   if (cmd === "start") {

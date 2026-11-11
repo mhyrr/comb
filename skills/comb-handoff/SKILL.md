@@ -1,6 +1,6 @@
 ---
 name: comb-handoff
-description: Use when Greg asks about delegated work, his comb agents, or what is waiting on him ("maya, what's waiting on me in revrec?", "what are the agents doing?"), when he hands work off ("give this to maya", "have revrec take this"), or when work in this session could run without him and come back reviewable, so you should offer a hand-off. Relays to the background chief of staff with SendMessage.
+description: Use when Greg asks about delegated work, his comb agents, or what is waiting on him ("maya, what's waiting on me in revrec?", "what are the agents doing?"), when he hands work off ("give this to maya", "have revrec take this"), or when work in this session could run without him and come back reviewable, so you should offer a hand-off. Relays to the background chief of staff with agent_send.
 ---
 
 # comb hand-off
@@ -24,15 +24,13 @@ If you are not sure, do it here.
 
 ## How to relay
 
-1. Check that she is running with the comb `agent_list` tool. If `maya` is
-   missing, `gone` or `done`, start her with `agent_start`, name `maya`,
-   cwd `~/work`, and no charter (her workspace already holds it).
-2. Send her the ask with `SendMessage` to `maya`. Use Greg's words, then add
-   what she cannot see from here: the repo, what was decided in this session,
-   any constraint. Ask her to reply to you.
-3. Tell Greg in one line that you asked her. Carry on with other work; do not
+1. Send Greg's ask with the comb `agent_send` tool, to `maya`. Use his words,
+   then add what she cannot see from here: the repo, what was decided in this
+   session, any constraint. She gets it whether she is working or asleep, and
+   her reply comes back to this session.
+2. Tell Greg in one line that you asked her. Carry on with other work; do not
    make him wait.
-4. When her reply arrives, give it to Greg plainly. Lead with the answer.
+3. When her reply arrives, give it to Greg plainly. Lead with the answer.
 
 ## Offering a hand-off
 
@@ -43,7 +41,7 @@ for small things that are faster to do here.
 
 Offer in one line: "This could run in the background. Hand it to Maya?"
 
-Hand off only after Greg says yes. Then send Maya:
+Hand off only after Greg says yes. Then `agent_send` Maya:
 
 - the goal, in Greg's words;
 - what was decided, and why;

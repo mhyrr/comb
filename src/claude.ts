@@ -10,11 +10,17 @@ import { join } from "node:path";
 export type RunResult = { code: number; stdout: string; stderr: string };
 export type Run = (
   argv: string[],
-  opts: { cwd: string; env: Record<string, string> },
+  opts: { cwd: string; env: Record<string, string>; stdin?: string },
 ) => Promise<RunResult>;
 
 export const runProcess: Run = async (argv, opts) => {
-  const proc = Bun.spawn(argv, { cwd: opts.cwd, env: opts.env, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(argv, {
+    cwd: opts.cwd,
+    env: opts.env,
+    stdin: opts.stdin === undefined ? "ignore" : new Blob([opts.stdin]),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -72,6 +78,28 @@ export async function listLiveSessions(
   const parsed = JSON.parse(res.stdout) as unknown;
   if (!Array.isArray(parsed)) throw new Error("claude agents --json did not return a list");
   return parsed as LiveSession[];
+}
+
+/**
+ * Delivers a message to a live session by name. Claude has no CLI for
+ * SendMessage and its transport is internal, so a one-shot `claude -p` that
+ * may only use SendMessage does the send (about 5 seconds). The prompt goes on
+ * stdin because --allowedTools takes a list and would swallow it.
+ */
+export async function relayMessage(claude: string, to: string, text: string, run: Run = runProcess): Promise<void> {
+  const prompt = [
+    `Call the SendMessage tool exactly once, to "${to}", with the text between the markers as the message, unchanged.`,
+    "Then reply with the single word SENT if it succeeded, or FAILED and the tool's error if it did not.",
+    "<<<MESSAGE",
+    text,
+    "MESSAGE>>>",
+  ].join("\n");
+  const argv = [claude, "-p", "--model", "haiku", "--allowedTools", "SendMessage"];
+  const res = await run(argv, { cwd: process.cwd(), env: childEnv(), stdin: prompt });
+  const out = res.stdout.trim();
+  if (res.code !== 0 || !/\bSENT\b/.test(out) || /\bFAILED\b/.test(out)) {
+    throw new Error(`Could not deliver to ${to}: ${out || res.stderr.trim() || `exit ${res.code}`}`);
+  }
 }
 
 /**

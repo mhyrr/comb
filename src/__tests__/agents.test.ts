@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { agentDir, listAgents, startAgent, validateAgentName } from "../agents";
+import { agentDir, listAgents, sendToAgent, startAgent, validateAgentName } from "../agents";
 import { buildStartArgv, childEnv, parseBackgrounded, type LiveSession, type Run } from "../claude";
 import { projectForDir } from "../hive";
 
@@ -15,11 +15,13 @@ import { projectForDir } from "../hive";
 function fakeClaude(initial: LiveSession[] = []) {
   const sessions = [...initial];
   let identity: { code: number; stdout: string; stderr: string } | null = null;
-  const calls: { argv: string[]; cwd: string; env: Record<string, string> }[] = [];
+  const calls: { argv: string[]; cwd: string; env: Record<string, string>; stdin?: string }[] = [];
+  let relayReply = "SENT";
   let next = 0;
   let bgOutput: ((id: string, name: string) => { code: number; stdout: string; stderr: string }) | null = null;
   const run: Run = async (argv, opts) => {
-    calls.push({ argv, cwd: opts.cwd, env: opts.env });
+    calls.push({ argv, cwd: opts.cwd, env: opts.env, stdin: opts.stdin });
+    if (argv[1] === "-p") return { code: 0, stdout: `${relayReply}\n`, stderr: "" };
     if (argv[1] === "identity") return identity ?? { code: 0, stdout: `IDENTITY for ${opts.cwd}\n`, stderr: "" };
     if (argv[1] === "agents") return { code: 0, stdout: JSON.stringify(sessions), stderr: "" };
     if (argv[1] === "--bg") {
@@ -39,6 +41,7 @@ function fakeClaude(initial: LiveSession[] = []) {
     run, calls, sessions,
     failBg: (f: typeof bgOutput) => { bgOutput = f; },
     failIdentity: () => { identity = { code: 1, stdout: "", stderr: "no hive" }; },
+    relayReplies: (text: string) => { relayReply = text; },
   };
 }
 
@@ -121,7 +124,7 @@ describe("comb agents", () => {
       name: "rate-limiter", charter: "Build TK-142.", parent: "revrec", worktree: true, cwd: repo, home,
       claudeBin: "claude", run: claude.run, wait: noWait,
     });
-    expect(await readFile(join(dir, "system-prompt.md"), "utf-8")).toContain('SendMessage to "revrec"');
+    expect(await readFile(join(dir, "system-prompt.md"), "utf-8")).toContain('Your parent is the agent "revrec". Tell it with `agent_send`');
     const bg = claude.calls.find((c) => c.argv[1] === "--bg")!;
     expect(bg.argv.slice(-3)).toEqual(["-w", "rate-limiter", "Read your charter.md and checklist.md, then begin."]);
   });
@@ -167,7 +170,7 @@ describe("comb agents", () => {
     claude.sessions[0] = { ...claude.sessions[0]!, kind: "background", state: "blocked", status: undefined };
 
     const rows = await listAgents(base);
-    expect(rows.map((r) => [r.name, r.state])).toEqual([["maya", "done"]]);
+    expect(rows.map((r) => [r.name, r.state])).toEqual([["maya", "ready"]]);
 
     await startAgent({ name: "maya", ...base });
     const bg = claude.calls.filter((c) => c.argv[1] === "--bg").at(-1)!;
@@ -216,22 +219,70 @@ describe("comb agents", () => {
     }
   });
 
-  test("list shows live, finished and gone agents", async () => {
+  test("the roster shows working or ready, what each is for, and the last log line", async () => {
     const claude = fakeClaude();
     const base = { cwd: repo, home, claudeBin: "claude", run: claude.run, wait: noWait };
-    await startAgent({ name: "alpha", charter: "c", ...base });
-    await startAgent({ name: "beta", charter: "c", parent: "alpha", ...base });
-    await writeFile(join(agentDir("beta", home), "reports", "2026-11-10-done.md"), "# Done\n");
-    claude.sessions.splice(0, 1); // alpha died
-    claude.sessions[0]!.state = "blocked"; // beta finished its turn and waits
-    claude.sessions[0]!.status = "idle";
+    await startAgent({ name: "alpha", charter: "# Alpha\n\nOwns the alpha project.", ...base });
+    await startAgent({ name: "beta", charter: "Ships beta.", parent: "alpha", ...base });
+    claude.sessions.splice(0, 1); // alpha's session is gone
+    claude.sessions[0]!.status = "busy";
 
     const rows = await listAgents({ home, claudeBin: "claude", run: claude.run });
-    expect(rows.map((r) => [r.name, r.state, r.parent, r.reports])).toEqual([
-      ["alpha", "gone", "greg", 0],
-      ["beta", "idle", "alpha", 1],
+    expect(rows.map((r) => [r.name, r.state, r.about, r.parent])).toEqual([
+      ["alpha", "ready", "Alpha", "greg"],
+      ["beta", "working", "Ships beta.", "alpha"],
     ]);
     expect(rows[1]!.lastLog).toContain("started by alpha");
+  });
+
+  test("send to a live agent relays the message, with who to reply to", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    claude.sessions[0] = { ...claude.sessions[0]!, kind: "background", state: "blocked", status: "idle" };
+
+    const { woke } = await sendToAgent({ name: "maya", message: "what's waiting on me?", from: "hive-e8", ...base });
+    expect(woke).toBe(false);
+    const relay = claude.calls.find((c) => c.argv[1] === "-p")!;
+    expect(relay.argv).toEqual(["claude", "-p", "--model", "haiku", "--allowedTools", "SendMessage"]);
+    expect(relay.stdin).toContain('to "maya"');
+    expect(relay.stdin).toContain('Reply with the comb agent_send tool to "hive-e8".');
+    expect(relay.stdin).toContain("what's waiting on me?");
+    expect(relay.env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(claude.calls.filter((c) => c.argv[1] === "--bg")).toHaveLength(1);
+  });
+
+  test("send to an asleep agent resumes it with the message and keeps its parent", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    const first = await startAgent({ name: "revrec", charter: "c", cwd: repo, parent: "maya", ...base });
+    claude.sessions[0] = { ...claude.sessions[0]!, kind: "background", state: "blocked", status: undefined };
+
+    const { woke, session } = await sendToAgent({ name: "revrec", message: "take TK-143", from: "maya", ...base });
+    expect(woke).toBe(true);
+    expect(session!.parent).toBe("maya");
+    const bg = claude.calls.filter((c) => c.argv[1] === "--bg").at(-1)!;
+    expect(bg.argv[bg.argv.indexOf("--resume") + 1]).toBe(first.session.sessionId);
+    expect(bg.argv.at(-1)).toContain("take TK-143");
+    expect(claude.calls.some((c) => c.argv[1] === "-p")).toBe(false);
+  });
+
+  test("send reaches a session that is not an agent, such as Greg's", async () => {
+    const claude = fakeClaude([{ id: "x", sessionId: "s-1", name: "hive-e8", cwd: repo, kind: "interactive", status: "idle", pid: 42 }]);
+    const { woke } = await sendToAgent({ name: "hive-e8", message: "done", from: "maya", home, claudeBin: "claude", run: claude.run });
+    expect(woke).toBe(false);
+    expect(claude.calls.find((c) => c.argv[1] === "-p")!.stdin).toContain('to "hive-e8"');
+  });
+
+  test("send to nobody, or a failed relay, is an error", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    await expect(sendToAgent({ name: "nobody", message: "hi", ...base })).rejects.toThrow('no agent or session named "nobody"');
+
+    await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    claude.sessions[0]!.status = "idle";
+    claude.relayReplies("FAILED: No agent named 'maya' is reachable.");
+    await expect(sendToAgent({ name: "maya", message: "hi", ...base })).rejects.toThrow("Could not deliver to maya");
   });
 
   test("identity comes from hive in the agent's directory; a failure writes nothing", async () => {
