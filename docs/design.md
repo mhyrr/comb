@@ -345,6 +345,7 @@ Claude Code 2.1.319–2.1.322, real background sessions.
 | Mode tag | Messages have arrived tagged `from-mode="prompting"` although both transcripts record `auto`, and were not held. Watch it if messages stall |
 | comb-mcp tools | Deferred: the agent loads them with one ToolSearch call |
 | Between messages | A background agent finishes its turn and waits (`state: blocked`, `status: idle`). The next `SendMessage` continues the same session with its full history: Maya answered a follow-up from context without re-reading (2026-11-11) |
+| Idle retire | The daemon retires a background session after 3 hours at an idle prompt (`daemon.log`: `bg retire <id>: idle-prompt, idle 3h`). `claude agents` then keeps its last state (`blocked`) with no status and no pid, and SendMessage cannot reach it. `--resume` brings it back under a new session id with the old transcript copied in. comb treats a background row with no status as ended (2026-11-11) |
 | Same-name MCP servers | An agent's `--mcp-config` `comb` entry wins over the user-scope one |
 | One-shot relay | `claude -p` with only `SendMessage` allowed delivers to a live session by name in about 5 seconds. `--allowedTools` takes a list too, so send the prompt on stdin |
 
