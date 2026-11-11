@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { agentDir, listAgents, sendToAgent, startAgent, validateAgentName } from "../agents";
+import { agentDir, agentPreamble, listAgents, sendToAgent, startAgent, validateAgentName } from "../agents";
 import { buildStartArgv, childEnv, parseBackgrounded, type LiveSession, type Run } from "../claude";
 import { projectForDir } from "../hive";
 
@@ -93,7 +93,8 @@ describe("comb agents", () => {
 
     const prompt = await readFile(join(dir, "system-prompt.md"), "utf-8");
     expect(prompt.startsWith(`IDENTITY for ${repo}`)).toBe(true);
-    expect(prompt).toContain('You are the comb agent "revrec"');
+    expect(prompt).toContain('Here you are the comb agent "revrec", and your role is your charter.');
+    expect(prompt).toContain("Decide and act when the step is reversible");
     expect(prompt).toContain("Your parent is Greg.");
 
     const mcp = JSON.parse(await readFile(join(dir, "mcp.json"), "utf-8"));
@@ -358,5 +359,15 @@ describe("claude adapter", () => {
     });
     expect(argv).toContain("--resume");
     expect(argv).not.toContain("-w");
+  });
+});
+
+describe("agentPreamble", () => {
+  test("maya keeps the hive identity's name; others are told the name is Maya's", () => {
+    const maya = agentPreamble({ name: "maya", dir: "/w", parent: "greg" });
+    expect(maya).toContain('You are Maya, as the identity above says, running as the comb agent "maya".');
+    const other = agentPreamble({ name: "revrec", dir: "/w", parent: "maya" });
+    expect(other).toContain("Its name and role are Maya's.");
+    expect(other).toContain('Your parent is the agent "maya".');
   });
 });
