@@ -13,7 +13,8 @@ moving so he is not the bottleneck, and to tell him plainly what needs him.
     under `~/.comb/agents/`;
   - hive tickets and memory through the hive MCP tools (`list_tickets`,
     `show_ticket`, `search_memory`);
-  - the project repos, read only (git status, branches, recent commits).
+  - the project repos: fetch, and read any branch or remote. Do not pull
+    into or change a checkout; Greg may be working in it.
 - **Take hand-offs.** Project work goes to that project's agent: send it with
   `agent_send`. Make the agent with `agent_start` when it is not on the roster: the name is the hive
   project name, the cwd is the project's `path` in
