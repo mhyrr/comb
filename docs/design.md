@@ -45,6 +45,10 @@ Three places, each with one job (agreed 2026-11-11):
 
 - comb has no conversation of its own. Greg always talks to an agent; comb
   is the window onto all of them.
+- **Greg never runs `comb` himself.** comb is a tool his sessions and agents
+  use: `comb-mcp` is registered for his Claude sessions at user scope, so any
+  session can start, list and manage agents. The `comb` command stays for
+  building and debugging.
 - **Greg addresses agents by name** in his own session: "maya, what's
   waiting on me in revrec?" His session relays that to Maya with
   `SendMessage` and brings her answer back.
@@ -56,8 +60,11 @@ Three places, each with one job (agreed 2026-11-11):
   sessions too, so she can avoid starting work where Greg is already working.
 
 Both behaviors in Greg's session come from one skill, `comb-handoff`,
-installed by `comb init` into `~/.claude/skills/`. It is comb's one
-deliberate addition to Greg's global Claude setup.
+installed by `comb init` into `~/.claude/skills/`. That skill and the
+user-scope `comb-mcp` entry are comb's two deliberate additions to Greg's
+global Claude setup. Agents also get `comb-mcp` through their own
+`--mcp-config`, which takes precedence (verified), so `COMB_AGENT` still
+makes the agent the parent of what it starts.
 
 ## 2. Principles
 
@@ -242,10 +249,16 @@ stays hive's. From the top: **Waiting on you** (the queue), **Now** (one line
 per agent in tree order, plus Greg's own open sessions), **Reports**
 (finished work, newest first).
 
-The page starts **read-only**. Greg answers from his session ("maya, tell
-revrec per-tenant"). Answer buttons (approve / reject / redirect with a
-reason) come once the page can wake the agent it answers: a web page cannot
-put a message into a running Claude session today (Q2).
+**The page can wake any agent.** There is no `claude send` command, and
+`SendMessage`'s local transport is internal (per-session keys), so comb does
+not imitate it. Instead the comb server starts a one-shot
+`claude -p --model haiku --allowedTools SendMessage` that sends Greg's text
+to the agent by name. Verified 2026-11-11: delivered in about 5 seconds.
+The relay carries text only; it decides nothing. Replace it if Claude Code
+ships a native send.
+
+So the page can answer from the start: approve / reject / redirect with a
+reason on a queue item, and a short message to any agent.
 
 ## 10. Decisions
 
@@ -270,10 +283,8 @@ put a message into a running Claude session today (Q2).
 - **D9. No driving mode.** Greg's sessions stay outside the tree and talk to
   Maya. He can still `claude attach` to watch any agent.
 - **D10. comb is its own tool on top of hive** (2026-11-11). Separate repo,
-  binary, state (`~/.comb`) and MCP server (`comb-mcp`, handed to agents with
-  `--mcp-config`, never registered globally; the `comb-handoff` skill is the
-  one global addition, D14). It reads hive and never writes
-  `~/.hive`. Supersedes "hv runs beside hive until cutover."
+  binary, state (`~/.comb`) and MCP server (`comb-mcp`). It reads hive and
+  never writes `~/.hive`. Supersedes "hv runs beside hive until cutover."
 - **D11. Subscription-only auth.** Every agent start removes
   `ANTHROPIC_API_KEY`; if OAuth fails, the start fails visibly.
 - **D12. Skills define roles** (2026-11-11), delivered per session (§5.3).
@@ -283,16 +294,17 @@ put a message into a running Claude session today (Q2).
 - **D14. Three places: session, Maya, page** (2026-11-11, §1). Greg
   addresses agents by name from his session; his session offers hand-offs
   and never takes them on its own.
-- **D15. comb's page is its own server and starts read-only** (2026-11-11).
+- **D15. comb's page is its own server, and it can message agents**
+  through the one-shot relay (§9).
+- **D16. comb is an agent tool, not a command for Greg** (2026-11-11).
+  `comb-mcp` is registered for Greg's sessions at user scope.
 
 ## 11. Open questions
 
 - **Q1. Where does the work loop stop for Greg?** After design, only at the
   reviewable branch, or by the size of the change?
-- **Q2. Can the page reach a running session?** No `claude send` command
-  exists. Candidates: Claude Code channels, with comb-mcp (already in every
-  agent) pushing the page's messages into the session; or a one-shot
-  `claude -p` that relays to Maya with `SendMessage`. Spike channels first.
+- **Q2. (Answered 2026-11-11.)** The page reaches agents through a one-shot
+  `claude -p` relay (§9).
 
 ## 12. Build order
 
@@ -301,8 +313,8 @@ put a message into a running Claude session today (Q2).
 2. **Skills.** Move the core contract into a file; write the work-loop skill
    with Greg (Q1); write `comb-handoff` for Greg's sessions; spike
    `--plugin-dir` with `--bg` (§5.3); give `agent_start` a skills choice.
-3. **Now view.** Read-only page: agents and Greg's own sessions, live state.
-   Spike channels (Q2) alongside.
+3. **The page, first cut.** Agents and Greg's own sessions with live state,
+   and a message box per agent through the relay.
 4. **Supervision.** Exit and hang detection reaches the parent; restart from
    the workspace.
 5. **Maya and the six project agents.** `comb maya`; project agents from
@@ -332,6 +344,8 @@ Claude Code 2.1.319–2.1.322, real background sessions.
 | `-w <name>` | Creates `<main checkout>/.claude/worktrees/<name>` on `worktree-<name>`, from the main checkout's HEAD, even from another worktree. `claude rm` removes a clean worktree and branch |
 | Mode tag | Messages have arrived tagged `from-mode="prompting"` although both transcripts record `auto`, and were not held. Watch it if messages stall |
 | comb-mcp tools | Deferred: the agent loads them with one ToolSearch call |
+| Same-name MCP servers | An agent's `--mcp-config` `comb` entry wins over the user-scope one |
+| One-shot relay | `claude -p` with only `SendMessage` allowed delivers to a live session by name in about 5 seconds. `--allowedTools` takes a list too, so send the prompt on stdin |
 
 ## 14. Sources
 
