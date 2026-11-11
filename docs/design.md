@@ -298,6 +298,14 @@ reason on a queue item, and a short message to any agent.
   through the one-shot relay (§9).
 - **D16. comb is an agent tool, not a command for Greg** (2026-11-11).
   `comb-mcp` is registered for Greg's sessions at user scope.
+- **D17. Agents are a roster; state is comb's problem** (2026-11-11). Greg:
+  "We should just have a list of agents that can do stuff." Callers never
+  check whether an agent is alive. `agent_send` reaches it either way: a live
+  agent through the relay, an asleep one (retired by the daemon, stopped, or
+  crashed) by resuming it with the message as its prompt. It also reaches
+  any open session by name, so replies use the same verb. `agent_list` shows
+  only working or ready. Verified live: a stopped Maya woke on `comb send` in
+  1 second and replied to Greg's session through `agent_send`.
 
 ## 11. Open questions
 
