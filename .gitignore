@@ -1,0 +1,4 @@
+node_modules/
+/comb-bin
+/comb-mcp
+*.bun-build
