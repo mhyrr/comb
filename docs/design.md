@@ -344,6 +344,7 @@ Claude Code 2.1.319–2.1.322, real background sessions.
 | `-w <name>` | Creates `<main checkout>/.claude/worktrees/<name>` on `worktree-<name>`, from the main checkout's HEAD, even from another worktree. `claude rm` removes a clean worktree and branch |
 | Mode tag | Messages have arrived tagged `from-mode="prompting"` although both transcripts record `auto`, and were not held. Watch it if messages stall |
 | comb-mcp tools | Deferred: the agent loads them with one ToolSearch call |
+| Between messages | A background agent finishes its turn and waits (`state: blocked`, `status: idle`). The next `SendMessage` continues the same session with its full history: Maya answered a follow-up from context without re-reading (2026-11-11) |
 | Same-name MCP servers | An agent's `--mcp-config` `comb` entry wins over the user-scope one |
 | One-shot relay | `claude -p` with only `SendMessage` allowed delivers to a live session by name in about 5 seconds. `--allowedTools` takes a list too, so send the prompt on stdin |
 
