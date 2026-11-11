@@ -16,6 +16,7 @@ import { hiveIdentity, projectForDir } from "./hive";
 import { ensureCombScaffold, resolveCombHome } from "./paths";
 import {
   findClaudeBin,
+  isEnded,
   listLiveSessions,
   runProcess,
   startBackground,
@@ -171,12 +172,10 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
   }
 
   const previous = exists ? await readAgentSession(name, home) : null;
-  // A finished session stays listed as "done"; this agent's own one is the
-  // session we are about to wake, so it is not a clash.
+  // An ended session stays listed (as "done", or as a stale "blocked" after
+  // the daemon retires it); only a live one with this name is a clash.
   const live = await listLiveSessions(claude, run);
-  const clash = live.find(
-    (s) => s.name === name && !(s.sessionId === previous?.sessionId && s.state === "done"),
-  );
+  const clash = live.find((s) => s.name === name && !isEnded(s));
   if (clash) {
     throw new UsageError(
       `A session named "${name}" is already running (${clash.id}, ${clash.cwd}). Message it with SendMessage instead.`,
@@ -290,7 +289,8 @@ export async function listAgents(opts: { home?: string; claudeBin?: string; run?
  * "idle" for that; keep the end states ("done", "failed") as they are.
  */
 function displayState(row: LiveSession): string {
-  if (row.state === "done" || row.state === "failed") return row.state;
+  if (row.state === "failed") return "failed";
+  if (isEnded(row)) return "done";
   return row.status ?? row.state ?? "live";
 }
 

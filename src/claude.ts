@@ -41,10 +41,22 @@ export type LiveSession = {
   sessionId: string;
   name: string;
   cwd: string;
+  kind?: string;
   state?: string;
   status?: string;
   pid?: number;
 };
+
+/**
+ * Whether a session has ended. Claude's daemon retires a background session
+ * after 3h at an idle prompt and logs it as done, but `claude agents` can keep
+ * its last state ("blocked") with no status and no pid. A live background row
+ * always has a status, so a background row without one has ended.
+ */
+export function isEnded(row: LiveSession): boolean {
+  if (row.state === "done" || row.state === "failed") return true;
+  return row.kind === "background" && !row.status;
+}
 
 /** Live sessions, or with `all` also finished and failed ones. */
 export async function listLiveSessions(

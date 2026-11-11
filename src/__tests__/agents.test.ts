@@ -159,6 +159,30 @@ describe("comb agents", () => {
     expect(await readFile(join(agentDir("investing", home), "log.md"), "utf-8")).toContain("resumed by greg");
   });
 
+  test("a session the daemon retired for idling is listed as done and resumes", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    const first = await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    // What `claude agents` shows after "bg retire …: idle-prompt, idle 3h".
+    claude.sessions[0] = { ...claude.sessions[0]!, kind: "background", state: "blocked", status: undefined };
+
+    const rows = await listAgents(base);
+    expect(rows.map((r) => [r.name, r.state])).toEqual([["maya", "done"]]);
+
+    await startAgent({ name: "maya", ...base });
+    const bg = claude.calls.filter((c) => c.argv[1] === "--bg").at(-1)!;
+    expect(bg.argv[bg.argv.indexOf("--resume") + 1]).toBe(first.session.sessionId);
+  });
+
+  test("a live background session with the same name still blocks the start", async () => {
+    const claude = fakeClaude([
+      { id: "deadbeef", sessionId: "deadbeef-x", name: "hive", cwd: "/x", kind: "background", state: "blocked", status: "idle" },
+    ]);
+    await expect(startAgent({
+      name: "hive", charter: "c", cwd: repo, home, claudeBin: "claude", run: claude.run, wait: noWait,
+    })).rejects.toThrow("already running");
+  });
+
   test("an untrusted folder is reported plainly", async () => {
     const claude = fakeClaude();
     claude.failBg(() => ({ code: 1, stdout: "Workspace not trusted. Run `claude` in /x once ...\n", stderr: "" }));
