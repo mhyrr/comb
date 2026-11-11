@@ -33,6 +33,32 @@ comb reads hive through stable interfaces and never writes `~/.hive`:
 
 Nothing in comb merges back into hive. There is no cutover.
 
+### How Greg works with it
+
+Three places, each with one job (agreed 2026-11-11):
+
+| Place | Job | What Greg does there |
+|---|---|---|
+| **His `hive` session** | Doing | Hands-on work with Greg in the loop, as today |
+| **Maya** | Delegating | The one address for "take this, come back with something reviewable" |
+| **comb's page** | Overseeing | What is running, what is waiting on him, what finished |
+
+- comb has no conversation of its own. Greg always talks to an agent; comb
+  is the window onto all of them.
+- **Greg addresses agents by name** in his own session: "maya, what's
+  waiting on me in revrec?" His session relays that to Maya with
+  `SendMessage` and brings her answer back.
+- **His session offers hand-offs.** When work can run without Greg and come
+  back reviewable, his session offers to hand it to Maya, and packs the
+  context (what Greg said, decisions so far, the repo) when he says yes. It
+  never hands off on its own. Trust is earned later, deliberately.
+- **Maya sees Greg's own sessions.** `claude agents --json` lists interactive
+  sessions too, so she can avoid starting work where Greg is already working.
+
+Both behaviors in Greg's session come from one skill, `comb-handoff`,
+installed by `comb init` into `~/.claude/skills/`. It is comb's one
+deliberate addition to Greg's global Claude setup.
+
 ## 2. Principles
 
 1. **Trust the model and the harness.** When something is uncertain, the
@@ -211,9 +237,15 @@ one-key approve / reject / redirect with an optional reason. Maya ranks it.
 Greg's answer goes back to the agent and, with his reason, into
 `precedents/`.
 
-comb's page shows, from the top: **Waiting on you** (the queue), **Now** (one
-line per agent, tree order, live state), **Reports** (finished work, newest
-first). hive's dashboard stays hive's.
+comb's page is comb's main surface, its own local server; hive's dashboard
+stays hive's. From the top: **Waiting on you** (the queue), **Now** (one line
+per agent in tree order, plus Greg's own open sessions), **Reports**
+(finished work, newest first).
+
+The page starts **read-only**. Greg answers from his session ("maya, tell
+revrec per-tenant"). Answer buttons (approve / reject / redirect with a
+reason) come once the page can wake the agent it answers: a web page cannot
+put a message into a running Claude session today (Q2).
 
 ## 10. Decisions
 
@@ -224,8 +256,7 @@ first). hive's dashboard stays hive's.
   across harnesses.
 - **D3. Recovery is from the workspace.** Agents keep what matters in
   `log.md` and `memory/`, not in context.
-- **D4. Watches and campaigns are deleted** from hive. (Done on the `hive-v2`
-  branch; landing it on hive's `main` is a separate call.)
+- **D4. Watches and campaigns are deleted** from hive (hive PR #41).
 - **D5. Project agents come from an explicit list.** Six to start: matreas,
   revrec, arete, writing, investing, hive.
 - **D6. Messages ride the harness** (2026-11-10). No comb `message` tool.
@@ -240,7 +271,8 @@ first). hive's dashboard stays hive's.
   Maya. He can still `claude attach` to watch any agent.
 - **D10. comb is its own tool on top of hive** (2026-11-11). Separate repo,
   binary, state (`~/.comb`) and MCP server (`comb-mcp`, handed to agents with
-  `--mcp-config`, never registered globally). It reads hive and never writes
+  `--mcp-config`, never registered globally; the `comb-handoff` skill is the
+  one global addition, D14). It reads hive and never writes
   `~/.hive`. Supersedes "hv runs beside hive until cutover."
 - **D11. Subscription-only auth.** Every agent start removes
   `ANTHROPIC_API_KEY`; if OAuth fails, the start fails visibly.
@@ -248,22 +280,29 @@ first). hive's dashboard stays hive's.
   The work-loop skill comes first.
 - **D13. Precedents live in comb for now.** They are tied to queue answers;
   hive's nightly may later promote lasting ones into taste.
+- **D14. Three places: session, Maya, page** (2026-11-11, §1). Greg
+  addresses agents by name from his session; his session offers hand-offs
+  and never takes them on its own.
+- **D15. comb's page is its own server and starts read-only** (2026-11-11).
 
 ## 11. Open questions
 
 - **Q1. Where does the work loop stop for Greg?** After design, only at the
   reviewable branch, or by the size of the change?
-- **Q2.** Should comb's page be its own server, or a band in hive's
-  dashboard reading `~/.comb`?
+- **Q2. Can the page reach a running session?** No `claude send` command
+  exists. Candidates: Claude Code channels, with comb-mcp (already in every
+  agent) pushing the page's messages into the session; or a one-shot
+  `claude -p` that relays to Maya with `SendMessage`. Spike channels first.
 
 ## 12. Build order
 
 1. **Agents.** (Done 2026-11-11.) Workspaces, `comb start|list`, comb-mcp
    with `agent_start` and `agent_list`, verified live end to end.
 2. **Skills.** Move the core contract into a file; write the work-loop skill
-   with Greg (Q1); spike `--plugin-dir` with `--bg` (§5.3); give
-   `agent_start` a skills choice.
-3. **Now view.** Read-only page of agents and their state.
+   with Greg (Q1); write `comb-handoff` for Greg's sessions; spike
+   `--plugin-dir` with `--bg` (§5.3); give `agent_start` a skills choice.
+3. **Now view.** Read-only page: agents and Greg's own sessions, live state.
+   Spike channels (Q2) alongside.
 4. **Supervision.** Exit and hang detection reaches the parent; restart from
    the workspace.
 5. **Maya and the six project agents.** `comb maya`; project agents from
