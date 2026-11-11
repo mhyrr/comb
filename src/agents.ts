@@ -8,6 +8,7 @@
 import { execSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { UsageError } from "./errors";
@@ -64,7 +65,7 @@ Each time you wake:
 3. Append to log.md what you did and why.
 `;
 
-async function createWorkspace(dir: string, name: string, charter: string): Promise<void> {
+export async function createWorkspace(dir: string, name: string, charter: string): Promise<void> {
   await mkdir(join(dir, "reports"), { recursive: true });
   await mkdir(join(dir, "memory"), { recursive: true });
   await writeFile(join(dir, "charter.md"), charter.trim() + "\n", "utf-8");
@@ -182,7 +183,7 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
     );
   }
 
-  const cwd = resolve(opts.cwd ?? previous?.cwd ?? process.cwd());
+  const cwd = resolve(expandHome(opts.cwd ?? previous?.cwd ?? process.cwd()));
   if (!existsSync(cwd)) throw new UsageError(`Working directory does not exist: ${cwd}`);
 
   // Identity first: if hive cannot supply it, nothing has been written yet.
@@ -194,7 +195,9 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
   await writeFile(systemPromptFile, `${identity}\n\n---\n\n${agentPreamble({ name, dir, parent })}`, "utf-8");
   const mcpConfigFile = await writeMcpConfig(dir, name, home);
 
-  const prompt = opts.prompt?.trim() || (exists
+  // A workspace made by `comb init` has a charter but has never run.
+  const ranBefore = previous !== null;
+  const prompt = opts.prompt?.trim() || (ranBefore
     ? "You were restarted from your workspace. Read charter.md, checklist.md, memory/ and the end of log.md, then carry on."
     : "Read your charter.md and checklist.md, then begin.");
   const permissionMode = opts.permissionMode ?? process.env.COMB_PERMISSION_MODE ?? "auto";
@@ -229,13 +232,18 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
     startedAt: new Date().toISOString(),
   };
   await writeFile(join(dir, "session.json"), JSON.stringify(session, null, 2) + "\n", "utf-8");
-  const verb = exists ? (resume ? "resumed" : "restarted") : "started";
+  const verb = ranBefore ? (resume ? "resumed" : "restarted") : "started";
   await appendFile(
     join(dir, "log.md"),
     `- ${session.startedAt} ${verb} by ${parent} in ${session.cwd} (session ${session.id})\n`,
     "utf-8",
   );
-  return { session, restarted: exists, dir };
+  return { session, restarted: ranBefore, dir };
+}
+
+function expandHome(path: string): string {
+  const home = process.env.HOME || homedir();
+  return path === "~" || path.startsWith("~/") ? home + path.slice(1) : path;
 }
 
 export type AgentStatus = {

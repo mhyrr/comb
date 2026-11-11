@@ -1,0 +1,73 @@
+/**
+ * comb init: create ~/.comb, Maya's workspace, and link comb's skills for
+ * Greg's own sessions. Skills are symlinked into ~/.claude/skills from this
+ * repo (the same pattern as seodash's contentloop), so there is one copy and
+ * edits are live. Nothing that already exists is overwritten.
+ */
+import { existsSync, lstatSync, readlinkSync } from "node:fs";
+import { mkdir, readFile, symlink } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+import { createWorkspace, agentDir } from "./agents";
+import { UsageError } from "./errors";
+import { ensureCombScaffold, resolveCombHome } from "./paths";
+
+/** Skills comb links into Greg's ~/.claude/skills. */
+export const USER_SKILLS = ["comb-handoff"];
+
+export function resolveCombRepo(): string {
+  return process.env.COMB_REPO || join(homedir(), "work", "comb");
+}
+
+export type InitResult = { lines: string[] };
+
+export async function combInit(opts: {
+  home?: string;
+  repo?: string;
+  claudeSkillsDir?: string;
+} = {}): Promise<InitResult> {
+  const home = opts.home ?? resolveCombHome();
+  const repo = opts.repo ?? resolveCombRepo();
+  const skillsDir = opts.claudeSkillsDir ?? join(homedir(), ".claude", "skills");
+  const lines: string[] = [];
+
+  if (!existsSync(join(repo, "skills"))) {
+    throw new UsageError(`comb repo not found at ${repo}. Set COMB_REPO to its path.`);
+  }
+
+  await ensureCombScaffold(home);
+  lines.push(`home: ${home}`);
+
+  const mayaDir = agentDir("maya", home);
+  if (existsSync(join(mayaDir, "charter.md"))) {
+    lines.push(`maya: workspace exists, left as is (${mayaDir})`);
+  } else {
+    const charter = await readFile(join(repo, "templates", "maya-charter.md"), "utf-8");
+    await createWorkspace(mayaDir, "maya", charter);
+    lines.push(`maya: workspace created (${mayaDir})`);
+  }
+
+  await mkdir(skillsDir, { recursive: true });
+  for (const name of USER_SKILLS) {
+    const target = join(repo, "skills", name);
+    const link = join(skillsDir, name);
+    if (!existsSync(link) && !isLink(link)) {
+      await symlink(target, link);
+      lines.push(`skill ${name}: linked ${link} -> ${target}`);
+    } else if (isLink(link) && readlinkSync(link) === target) {
+      lines.push(`skill ${name}: already linked`);
+    } else {
+      lines.push(`skill ${name}: ${link} exists and is not comb's link; left as is`);
+    }
+  }
+  return { lines };
+}
+
+function isLink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false; // intentional: missing path
+  }
+}

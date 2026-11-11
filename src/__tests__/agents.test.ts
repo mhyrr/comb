@@ -241,6 +241,20 @@ describe("comb agents", () => {
     expect(session.project).toBe("web");
   });
 
+  test("a cwd under ~ is expanded", async () => {
+    const claude = fakeClaude();
+    const savedHome = process.env.HOME;
+    process.env.HOME = root;
+    try {
+      const { session } = await startAgent({
+        name: "tilde", charter: "c", cwd: "~/repo", home, claudeBin: "claude", run: claude.run, wait: noWait,
+      });
+      expect(session.cwd).toBe(repo);
+    } finally {
+      process.env.HOME = savedHome;
+    }
+  });
+
   test("agent names are constrained", () => {
     expect(validateAgentName("rate-limiter")).toBe("rate-limiter");
     for (const bad of ["Maya", "1st", "a b", "../x", "greg", ""]) {

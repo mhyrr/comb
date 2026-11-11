@@ -7,12 +7,12 @@ import { readFile } from "node:fs/promises";
 
 import { formatAgentList, listAgents, startAgent } from "./agents";
 import { UsageError } from "./errors";
-import { ensureCombScaffold } from "./paths";
+import { combInit } from "./init";
 
 const usage = `comb: agents that work on your projects, layered on hive.
 
 Usage:
-  comb init                      Create ~/.comb
+  comb init                      Create ~/.comb and Maya's workspace; link comb-handoff
   comb start <name> --charter "<text>" [--cwd DIR] [--worktree] [--prompt "<text>"]
   comb start <name> --charter-file PATH [...]
   comb start <name>              Restart an existing agent from its workspace
@@ -28,8 +28,7 @@ async function main(args: string[]): Promise<void> {
     return;
   }
   if (cmd === "init") {
-    const paths = await ensureCombScaffold();
-    console.log(`comb is ready: ${paths.home}`);
+    for (const line of (await combInit()).lines) console.log(line);
     return;
   }
   if (cmd === "list") {
