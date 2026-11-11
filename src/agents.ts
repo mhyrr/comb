@@ -276,13 +276,22 @@ export async function listAgents(opts: { home?: string; claudeBin?: string; run?
     out.push({
       name,
       parent: session?.parent ?? null,
-      state: row ? (row.state ?? row.status ?? "live") : "gone",
+      state: row ? displayState(row) : "gone",
       cwd: session?.cwd ?? null,
       reports,
       lastLog: await lastLogLine(join(dir, "log.md")),
     });
   }
   return out;
+}
+
+/**
+ * Claude reports a waiting session as state "blocked", status "idle". Show
+ * "idle" for that; keep the end states ("done", "failed") as they are.
+ */
+function displayState(row: LiveSession): string {
+  if (row.state === "done" || row.state === "failed") return row.state;
+  return row.status ?? row.state ?? "live";
 }
 
 async function lastLogLine(path: string): Promise<string | null> {

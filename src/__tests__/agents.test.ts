@@ -199,11 +199,13 @@ describe("comb agents", () => {
     await startAgent({ name: "beta", charter: "c", parent: "alpha", ...base });
     await writeFile(join(agentDir("beta", home), "reports", "2026-11-10-done.md"), "# Done\n");
     claude.sessions.splice(0, 1); // alpha died
+    claude.sessions[0]!.state = "blocked"; // beta finished its turn and waits
+    claude.sessions[0]!.status = "idle";
 
     const rows = await listAgents({ home, claudeBin: "claude", run: claude.run });
     expect(rows.map((r) => [r.name, r.state, r.parent, r.reports])).toEqual([
       ["alpha", "gone", "greg", 0],
-      ["beta", "working", "alpha", 1],
+      ["beta", "idle", "alpha", 1],
     ]);
     expect(rows[1]!.lastLog).toContain("started by alpha");
   });
