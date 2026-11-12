@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/page/ui/style.css"
+        ],
+        "createdAt": "2026-11-12T00:02:00.004Z",
+        "reason": "Claude triage (not user-confirmed): L294 is .prose blockquote, a 2px neutral hairline (--hair) rule on quoted Markdown in agent prose; standard typographic quote convention, not a colored accent tab on a card"
+      }
+    ]
+  }
+}

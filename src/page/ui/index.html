@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>comb</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 24'%3E%3Cpath d='M11 1.5 20.5 7v10L11 22.5 1.5 17V7z' fill='%23EFA00B'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fragment+Mono&family=Schibsted+Grotesk:ital,wght@0,400..800;1,400..600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="bar">
+    <a class="mark" href="#/" aria-label="comb, home">
+      <svg viewBox="0 0 22 24" width="18" height="20" aria-hidden="true"><path d="M11 1.5 20.5 7v10L11 22.5 1.5 17V7z"/></svg>
+      <span>comb</span>
+    </a>
+    <nav class="views" aria-label="Views">
+      <a href="#/" data-view="now">Now</a>
+      <a href="#/tickets" data-view="tickets">Tickets</a>
+      <a href="#/memory" data-view="memory">Memory</a>
+    </nav>
+    <button class="find" type="button" id="find-open">
+      <span>Find an agent, session or project</span><kbd>⌘K</kbd>
+    </button>
+    <div class="pulse" id="pulse" aria-live="polite"></div>
+    <button class="maya-toggle" id="maya-toggle" type="button" aria-pressed="true">Hide Maya</button>
+  </header>
+
+  <main class="panes">
+    <aside class="rail" id="rail" aria-label="Agents and sessions"></aside>
+    <section class="stage" id="stage" aria-live="off"></section>
+    <aside class="maya" id="maya" aria-label="Maya"></aside>
+  </main>
+
+  <div class="palette" id="palette" hidden>
+    <div class="palette-box" role="dialog" aria-label="Find">
+      <input id="palette-input" type="text" placeholder="Go to…" autocomplete="off" spellcheck="false">
+      <ul id="palette-list" role="listbox"></ul>
+    </div>
+  </div>
+
+  <script type="module" src="./app.ts"></script>
+</body>
+</html>

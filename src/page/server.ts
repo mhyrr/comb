@@ -1,0 +1,362 @@
+/**
+ * comb's page: one local, live screen onto the agents (design §9.1).
+ *
+ *   GET  /                      the page
+ *   GET  /api/events            SSE: "state" snapshots (tree, sessions) as they change
+ *   GET  /api/feed?agent=|session=   SSE: "reset" with recent history, then "events"
+ *   POST /api/send              { to, message } signed as Greg on the page
+ *   GET  /api/agent/:name/:file charter | checklist | log
+ *   GET  /api/agent/:name/reports
+ *   GET  /api/tickets, /api/ticket?project&id
+ *   GET  /api/memory?project    parsed entries; the page filters them itself
+ *   POST /api/queue/:id/answer  { answer: go | no | redirect, note } back to the asking agent
+ *   POST /api/tickets/start     { project, id } handed to Maya to route
+ *   POST /api/upload            an image body; saved to ~/.comb/inbox/, path returned
+ *   GET  /api/inbox/:file       a saved image
+ *
+ * Loopback only, and every request must name this server as its Host (and
+ * Origin, for a POST), so no other site can drive the agents.
+ */
+import { existsSync, readdirSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import { agentDir, GREG, readAgentSession, sendToAgent, validateAgentName } from "../agents";
+import { findClaudeBin, listLiveSessions, runProcess, type LiveSession, type Run } from "../claude";
+import { HiveClient, listHiveProjects, type Ticket } from "../hive";
+import { resolveCombHome } from "../paths";
+import { answerMessage, readItem, recordAnswer } from "../queue";
+import { transcriptPath } from "../transcript";
+import { Tail } from "./feed";
+import { buildSnapshot, type Snapshot } from "./state";
+import page from "./ui/index.html";
+
+export type PageOpts = {
+  port?: number;
+  home?: string;
+  claudeBin?: string;
+  run?: Run;
+  /** How often to poll `claude agents --json` while a page is open. */
+  pollMs?: number;
+  hive?: HiveClient;
+};
+
+const FEED_MS = 600;
+const MAX_UPLOAD = 15 * 1024 * 1024;
+const IMAGE_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
+/** Names the upload route makes, and nothing else: no paths, no dot files. */
+const INBOX_NAME = /^[0-9TZ-]+-[0-9a-f]{8}\.(png|jpg|gif|webp)$/;
+const TICKET_TTL_MS = 30_000;
+
+export function startPage(opts: PageOpts = {}) {
+  const port = opts.port ?? Number(process.env.COMB_PAGE_PORT || 4747);
+  const home = opts.home ?? resolveCombHome();
+  const claude = opts.claudeBin ?? findClaudeBin();
+  const run = opts.run ?? runProcess;
+  const pollMs = opts.pollMs ?? 2500;
+  const hive = opts.hive ?? new HiveClient();
+  const enc = new TextEncoder();
+
+  // --- live state ----------------------------------------------------------
+  let live: LiveSession[] = [];
+  let snapshot: Snapshot | null = null;
+  let snapshotJson = "";
+  const stateClients = new Set<(event: string, data: unknown) => void>();
+
+  async function refresh(): Promise<void> {
+    let liveError: string | null = null;
+    try {
+      live = await listLiveSessions(claude, run);
+    } catch (err) {
+      liveError = err instanceof Error ? err.message : String(err);
+    }
+    const next = await buildSnapshot({ home, live, liveError });
+    const json = JSON.stringify({ ...next, at: undefined });
+    if (json === snapshotJson) return;
+    snapshot = next;
+    snapshotJson = json;
+    for (const send of stateClients) send("state", next);
+  }
+
+  let polling = false;
+  const timer = setInterval(async () => {
+    if (stateClients.size === 0 || polling) return;
+    polling = true;
+    try { await refresh(); } catch (err) { console.error("comb page: refresh failed:", err); } finally { polling = false; }
+  }, pollMs);
+
+  function eventStream(onStart: (send: (event: string, data: unknown) => void) => () => void): Response {
+    let stop = () => {};
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const send = (event: string, data: unknown) => {
+          try { controller.enqueue(enc.encode(sse(event, data))); } catch { stop(); }
+        };
+        const keepalive = setInterval(() => {
+          try { controller.enqueue(enc.encode(": keepalive\n\n")); } catch { stop(); }
+        }, 15_000);
+        const cleanup = onStart(send);
+        stop = () => { clearInterval(keepalive); cleanup(); };
+      },
+      cancel() { stop(); },
+    });
+    return new Response(stream, {
+      headers: { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" },
+    });
+  }
+
+  // --- feeds -----------------------------------------------------------------
+  type Target = { path: string; defaultFrom: string; cwd: string; sessionId: string };
+
+  async function resolveTarget(url: URL): Promise<Target | null> {
+    const agent = url.searchParams.get("agent");
+    if (agent) {
+      const s = await readAgentSession(validateAgentName(agent), home);
+      return s ? { path: transcriptPath(s.cwd, s.sessionId), defaultFrom: s.parent, cwd: s.cwd, sessionId: s.sessionId } : null;
+    }
+    const id = url.searchParams.get("session");
+    const row = id ? live.find((r) => r.sessionId === id) : undefined;
+    if (!row) return null;
+    return {
+      path: transcriptPath(row.cwd, row.sessionId),
+      defaultFrom: row.kind === "interactive" ? GREG : "comb",
+      cwd: row.cwd,
+      sessionId: row.sessionId,
+    };
+  }
+
+  function feed(url: URL): Response {
+    return eventStream((send) => {
+      let tail: Tail | null = null;
+      let sessionId = "";
+      let busy = false;
+      let ticks = 0;
+      const tick = async () => {
+        if (busy) return;
+        busy = true;
+        try {
+          // Re-resolve now and then: a woken agent moves to a new session.
+          if (!tail || ticks++ % 5 === 0) {
+            const t = await resolveTarget(url);
+            if (t && t.sessionId !== sessionId) {
+              sessionId = t.sessionId;
+              tail = new Tail(t.path, t.defaultFrom, t.cwd);
+              send("reset", { sessionId, events: await tail.history() });
+              return;
+            }
+            if (!t && !tail) {
+              send("reset", { sessionId: null, events: [] });
+              return;
+            }
+          }
+          const events = tail ? await tail.next() : [];
+          if (events.length) send("events", events);
+        } catch (err) {
+          send("problem", { message: err instanceof Error ? err.message : String(err) });
+        } finally {
+          busy = false;
+        }
+      };
+      void tick();
+      const t = setInterval(tick, FEED_MS);
+      return () => clearInterval(t);
+    });
+  }
+
+  // --- tickets ---------------------------------------------------------------
+  let ticketCache: { at: number; tickets: Ticket[]; failed: string[] } | null = null;
+  async function allTickets(force: boolean) {
+    if (!force && ticketCache && Date.now() - ticketCache.at < TICKET_TTL_MS) return ticketCache;
+    const projects = listHiveProjects();
+    const failed: string[] = [];
+    const lists = await Promise.all(projects.map(async (p) => {
+      try {
+        return [...await hive.tickets(p, "in_progress"), ...await hive.tickets(p, "open")];
+      } catch {
+        failed.push(p);
+        return [];
+      }
+    }));
+    ticketCache = { at: Date.now(), tickets: lists.flat(), failed };
+    return ticketCache;
+  }
+
+  // --- requests ---------------------------------------------------------------
+  const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+
+  function guard(req: Request): Response | null {
+    const host = req.headers.get("host") ?? "";
+    if (!allowedHosts.has(host)) return json({ error: "Wrong host." }, 403);
+    if (req.method !== "GET") {
+      const origin = req.headers.get("origin");
+      if (!origin || !allowedHosts.has(origin.replace(/^https?:\/\//, ""))) return json({ error: "Wrong origin." }, 403);
+    }
+    return null;
+  }
+
+  const api = async (req: Request, fn: (url: URL) => Promise<Response> | Response): Promise<Response> => {
+    const denied = guard(req);
+    if (denied) return denied;
+    try {
+      return await fn(new URL(req.url));
+    } catch (err) {
+      return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+  };
+
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port,
+    idleTimeout: 0, // SSE connections stay open
+    development: process.env.COMB_PAGE_DEV === "1",
+    routes: {
+      "/": page,
+      "/api/events": (req) => api(req, () => eventStream((send) => {
+        stateClients.add(send);
+        if (snapshot) send("state", snapshot);
+        else void refresh().catch((err) => send("problem", { message: String(err) }));
+        return () => { stateClients.delete(send); };
+      })),
+      "/api/feed": (req) => api(req, (url) => feed(url)),
+      "/api/send": {
+        POST: (req) => api(req, async () => {
+          const body = (await req.json().catch(() => null)) as { to?: unknown; message?: unknown } | null;
+          const to = typeof body?.to === "string" ? body.to.trim() : "";
+          const message = typeof body?.message === "string" ? body.message.trim() : "";
+          if (!to || !message) return json({ error: "Name an agent and write a message." }, 400);
+          const { woke } = await sendToAgent({ name: to, message, fromPage: true, home, claudeBin: claude, run });
+          void refresh().catch(() => {});
+          return json({ woke });
+        }),
+      },
+      "/api/upload": {
+        POST: (req) => api(req, async () => {
+          const type = (req.headers.get("content-type") ?? "").split(";")[0]!.trim();
+          const ext = IMAGE_TYPES[type];
+          if (!ext) return json({ error: "Only PNG, JPEG, GIF or WebP images can be attached." }, 415);
+          const bytes = new Uint8Array(await req.arrayBuffer());
+          if (bytes.length === 0) return json({ error: "The image was empty." }, 400);
+          if (bytes.length > MAX_UPLOAD) return json({ error: "That image is over 15 MB." }, 413);
+          const dir = join(home, "inbox");
+          await mkdir(dir, { recursive: true });
+          const name = `${new Date().toISOString().replace(/[:.]/g, "-")}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+          await writeFile(join(dir, name), bytes);
+          return json({ path: join(dir, name), url: `/api/inbox/${name}` });
+        }),
+      },
+      "/api/inbox/:file": (req) => api(req, async () => {
+        const file = req.params.file;
+        if (!INBOX_NAME.test(file)) return json({ error: "No such file." }, 404);
+        const f = Bun.file(join(home, "inbox", file));
+        return (await f.exists()) ? new Response(f, { headers: { "cache-control": "private, max-age=86400" } }) : json({ error: "No such file." }, 404);
+      }),
+      "/api/queue/:id/answer": {
+        POST: (req) => api(req, async () => {
+          const body = (await req.json().catch(() => null)) as { answer?: unknown; note?: unknown } | null;
+          const answer = body?.answer;
+          const note = typeof body?.note === "string" ? body.note.trim() : "";
+          if (answer !== "go" && answer !== "no" && answer !== "redirect") return json({ error: "Answer go, no or redirect." }, 400);
+          if (answer === "redirect" && !note) return json({ error: "Say what to do instead." }, 400);
+          const item = await readItem(req.params.id, home);
+          if (item.status !== "open") return json({ error: `Already answered (${item.status}).` }, 409);
+          // Deliver first: an answer that never reached the agent leaves the item open.
+          const { woke } = await sendToAgent({ name: item.from, message: answerMessage(item, answer, note || null), fromPage: true, home, claudeBin: claude, run });
+          const done = await recordAnswer(item.id, answer, note || null, home);
+          void refresh().catch(() => {});
+          return json({ item: done, woke });
+        }),
+      },
+      "/api/tickets/start": {
+        POST: (req) => api(req, async () => {
+          const body = (await req.json().catch(() => null)) as { project?: unknown; id?: unknown } | null;
+          const project = typeof body?.project === "string" ? body.project : "";
+          const id = typeof body?.id === "string" ? body.id : "";
+          if (!listHiveProjects().includes(project) || !/^[A-Za-z]+-\d+$/.test(id)) return json({ error: "No such ticket." }, 404);
+          const t = (await allTickets(false)).tickets.find((x) => x.project === project && x.id === id);
+          const { woke } = await sendToAgent({ name: "maya", message: startTicketMessage(project, id, t?.title ?? null), fromPage: true, home, claudeBin: claude, run });
+          return json({ woke });
+        }),
+      },
+      "/api/reports": (req) => api(req, async () => {
+        const root = join(home, "agents");
+        const out: { agent: string; file: string; title: string; summary: string }[] = [];
+        for (const agent of existsSync(root) ? readdirSync(root) : []) {
+          const dir = join(root, agent, "reports");
+          if (!existsSync(dir)) continue;
+          for (const file of readdirSync(dir).filter((f) => f.endsWith(".md"))) {
+            const text = await readFile(join(dir, file), "utf-8");
+            const title = text.split("\n").map((l) => l.replace(/^#+\s*/, "").trim()).find(Boolean) ?? file;
+            out.push({ agent, file, title, summary: summaryOf(text) });
+          }
+        }
+        out.sort((a, b) => b.file.localeCompare(a.file));
+        return json({ reports: out.slice(0, 8) });
+      }),
+      "/api/agent/:name/reports": (req) => api(req, async () => {
+        const dir = join(agentDir(validateAgentName(req.params.name), home), "reports");
+        if (!existsSync(dir)) return json({ reports: [] });
+        const files = readdirSync(dir).filter((f) => f.endsWith(".md")).sort().reverse();
+        const reports = await Promise.all(files.map(async (file) => ({ file, text: await readFile(join(dir, file), "utf-8") })));
+        return json({ reports });
+      }),
+      "/api/agent/:name/:file": (req) => api(req, async () => {
+        const file = req.params.file;
+        if (!["charter", "checklist", "log"].includes(file)) return json({ error: "No such file." }, 404);
+        const path = join(agentDir(validateAgentName(req.params.name), home), `${file}.md`);
+        return json({ text: existsSync(path) ? await readFile(path, "utf-8") : "" });
+      }),
+      "/api/tickets": (req) => api(req, async (url) => json(await allTickets(url.searchParams.has("fresh")))),
+      "/api/ticket": (req) => api(req, async (url) => {
+        const project = url.searchParams.get("project") ?? "";
+        const id = url.searchParams.get("id") ?? "";
+        if (!listHiveProjects().includes(project) || !id) return json({ error: "No such ticket." }, 404);
+        return json({ text: await hive.showTicket(project, id) });
+      }),
+      "/api/projects": (req) => api(req, () => json({ projects: listHiveProjects() })),
+      "/api/memory": (req) => api(req, async (url) => {
+        const project = url.searchParams.get("project") ?? "";
+        if (!listHiveProjects().includes(project)) return json({ error: "No such project." }, 404);
+        return json({ entries: await hive.memory(project) });
+      }),
+    },
+    fetch() {
+      return new Response("Not found", { status: 404 });
+    },
+  });
+
+  return {
+    url: `http://127.0.0.1:${server.port}`,
+    async stop() {
+      clearInterval(timer);
+      server.stop(true);
+      await hive.close();
+    },
+  };
+}
+
+/**
+ * What Maya hears when Greg clicks Start on a ticket. She routes it; the
+ * click is all the input Greg gives.
+ */
+export function startTicketMessage(project: string, id: string, title: string | null): string {
+  return [
+    `Start ${project} ${id}${title ? `, "${title}"` : ""}. Greg clicked Start on the ticket; that is his go.`,
+    `Hand it to the ${project} project agent (start one if there is none) with what it needs from the ticket and hive memory.`,
+    "Do not come back to Greg first. If something blocks it that only he can clear, file it with queue_add.",
+  ].join(" ");
+}
+
+/** The first paragraph of a report under its title, in about two lines. */
+function summaryOf(text: string): string {
+  const para = text.split(/\n\s*\n/).map((p) => p.trim()).find((p) => p && !p.startsWith("#")) ?? "";
+  const flat = para.replace(/^[-*]\s+/gm, "").replace(/\s+/g, " ").replace(/[*_`]/g, "");
+  return flat.length > 240 ? flat.slice(0, 239) + "…" : flat;
+}
+
+function sse(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+function json(data: unknown, status = 200): Response {
+  return Response.json(data, { status, headers: { "cache-control": "no-store" } });
+}
