@@ -318,6 +318,23 @@ group under Your sessions. The group opens with one click, and opens by
 itself when the selected row is in it. Folding deletes nothing: a message
 still wakes the agent, and a woken agent is back in the tree.
 
+**Open in terminal** (built 2026-11-12). Each agent's header has the
+`claude attach <name>` command (click copies it) and an Open in terminal
+button. The button copies the command and asks the server to open a tab in
+the agent's directory running it: a tab in a Rex session labelled `comb`
+(made on first use, then shown in the Rex app), or a Terminal.app window if
+Rex is missing or fails. `src/terminal.ts` does the work. The server accepts
+only a name with a `session.json`, and runs nothing but `claude attach
+<name>`, built as an argv; Terminal.app gets the directory and name as
+AppleScript arguments under `quoted form of`. Greg's own sessions get no
+button. Taking an agent over (stop, then `--resume`) stays manual.
+
+The directory is session.json's `cwd`, which for a worktree agent is already
+`<repo>/.claude/worktrees/<name>`. One record has been seen with that path
+doubled, so for a worktree agent the server cuts `cwd` after the first
+`.claude/worktrees/<name>`, or appends it to a repo-root `cwd`, and uses the
+first path that exists.
+
 **Safety.** The server binds to loopback, and refuses requests whose `Host`
 or `Origin` is not its own, so another site cannot post messages to agents.
 
@@ -473,6 +490,8 @@ Claude Code 2.1.319–2.1.322, real background sessions.
 | Between messages | A background agent finishes its turn and waits (`state: blocked`, `status: idle`). The next `SendMessage` continues the same session with its full history: Maya answered a follow-up from context without re-reading (2026-11-11) |
 | Idle retire | The daemon retires a background session after 3 hours at an idle prompt (`daemon.log`: `bg retire <id>: idle-prompt, idle 3h`). `claude agents` then keeps its last state (`blocked`) with no status and no pid, and SendMessage cannot reach it. `--resume` brings it back under a new session id with the old transcript copied in. comb treats a background row with no status as ended (2026-11-11) |
 | Same-name MCP servers | An agent's `--mcp-config` `comb` entry wins over the user-scope one |
+| `claude attach <name>` | Opens a background session in the terminal; part of the name works. Detaching (←, Ctrl+Z) leaves the session running (2.1.323) |
+| Rex CLI | Not on PATH. It lives at `/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex`; `rex __internal skill` prints its guide. A tab is `rex window new -s <session> <label> -c <dir> --keep-open --json -- <argv>`; a session is `rex new <label> -c <dir> --window <label> --json -- <argv>`. Neither shows anything in the app: `rex -C <app client> do session.select session_id=… window_id=…` does. `--autostart=false` fails instead of starting a hidden server. Commands run in the login shell's environment, so `claude` resolves (Rex 0.0.1793299046, 2026-11-12) |
 | One-shot relay | `claude -p` with only `SendMessage` allowed delivers to a live session by name in about 5 seconds. `--allowedTools` takes a list too, so send the prompt on stdin |
 
 ## 14. Sources

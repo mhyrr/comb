@@ -1,0 +1,176 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import type { Run, RunResult } from "../claude";
+import type { HiveClient } from "../hive";
+import { startPage } from "../page/server";
+import { agentWorkdir, openInTerminal, terminalArgv } from "../terminal";
+
+type Call = { argv: string[]; cwd: string };
+
+/** A fake process runner: answers by the argv, records every call. */
+function fakeRun(answer: (argv: string[]) => Partial<RunResult>): { run: Run; calls: Call[] } {
+  const calls: Call[] = [];
+  const run: Run = async (argv, opts) => {
+    calls.push({ argv, cwd: opts.cwd });
+    return { code: 0, stdout: "", stderr: "", ...answer(argv) };
+  };
+  return { run, calls };
+}
+
+const REX = "/Apps/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex";
+const sub = (argv: string[]) => argv.slice(2).join(" "); // drop rex and --autostart=false
+
+/** Rex answers for a server with the given sessions and one app client. */
+function rexAnswers(sessions: { session_id: string; label: string }[]) {
+  return (argv: string[]): Partial<RunResult> => {
+    if (argv[0] !== REX) return {};
+    const s = sub(argv);
+    if (s === "ls --json") return { stdout: JSON.stringify({ sessions }) };
+    if (s.startsWith("new ")) return { stdout: JSON.stringify({ session_id: "session:new", initial_windows: [{ window_id: "window:1" }] }) };
+    if (s.startsWith("window new")) return { stdout: JSON.stringify({ window_id: "window:2", block_ids: ["block:2"] }) };
+    if (s === "client ls --json") return { stdout: JSON.stringify({ clients: [{ client_id: "client:cli", info: { kind: "cli" } }, { client_id: "client:app", info: { kind: "app" } }] }) };
+    return {};
+  };
+}
+
+describe("agentWorkdir", () => {
+  const has = (...paths: string[]) => (p: string) => paths.includes(p);
+
+  test("a plain agent works in its cwd", () => {
+    expect(agentWorkdir({ name: "a", cwd: "/repo", worktree: false }, has("/repo"))).toBe("/repo");
+    expect(agentWorkdir({ name: "a", cwd: "/gone", worktree: false }, has())).toBeNull();
+  });
+
+  test("a worktree agent's recorded cwd is already its worktree", () => {
+    const wt = "/repo/.claude/worktrees/a";
+    expect(agentWorkdir({ name: "a", cwd: wt, worktree: true }, has(wt))).toBe(wt);
+  });
+
+  test("a doubled worktree path resolves to the real one", () => {
+    const wt = "/repo/.claude/worktrees/a";
+    expect(agentWorkdir({ name: "a", cwd: `${wt}/.claude/worktrees/a`, worktree: true }, has(wt))).toBe(wt);
+  });
+
+  test("a repo-root cwd gets the worktree appended", () => {
+    expect(agentWorkdir({ name: "a", cwd: "/repo", worktree: true }, has("/repo", "/repo/.claude/worktrees/a"))).toBe("/repo/.claude/worktrees/a");
+  });
+
+  test("another agent's worktree with a longer name does not match", () => {
+    const cwd = "/repo/.claude/worktrees/ab";
+    expect(agentWorkdir({ name: "a", cwd, worktree: true }, has(cwd))).toBe(cwd);
+    expect(agentWorkdir({ name: "a", cwd, worktree: true }, has("/repo/.claude/worktrees/a"))).toBeNull();
+  });
+});
+
+describe("openInTerminal", () => {
+  const base = { name: "revrec", dir: "/w/revrec", env: {} };
+
+  test("first use makes a 'comb' Rex session with a tab running claude attach, then shows it", async () => {
+    const { run, calls } = fakeRun(rexAnswers([{ session_id: "session:x", label: "hive" }]));
+    const out = await openInTerminal({ ...base, run, rex: REX });
+    expect(out).toEqual({ via: "rex", dir: "/w/revrec", command: "claude attach revrec" });
+    expect(calls.map((c) => c.argv)).toEqual([
+      [REX, "--autostart=false", "ls", "--json"],
+      [REX, "--autostart=false", "new", "comb", "-c", "/w/revrec", "--window", "revrec", "--keep-open", "--json", "--", "claude", "attach", "revrec"],
+      [REX, "--autostart=false", "client", "ls", "--json"],
+      [REX, "--autostart=false", "-C", "client:app", "do", "session.select", "session_id=session:new", "window_id=window:1"],
+      ["open", "-a", "/Apps/Rex Beta.app"],
+    ]);
+  });
+
+  test("later uses add a tab to the existing 'comb' session", async () => {
+    const { run, calls } = fakeRun(rexAnswers([{ session_id: "session:comb", label: "comb" }]));
+    await openInTerminal({ ...base, run, rex: REX });
+    expect(calls[1]!.argv).toEqual([REX, "--autostart=false", "window", "new", "-s", "session:comb", "revrec", "-c", "/w/revrec", "--keep-open", "--json", "--", "claude", "attach", "revrec"]);
+    expect(calls[3]!.argv).toContain("window_id=window:2");
+  });
+
+  test("falls back to Terminal.app when Rex fails, passing dir and name as arguments", async () => {
+    const { run, calls } = fakeRun((argv) => (argv[0] === REX ? { code: 1, stderr: "server not running" } : {}));
+    const out = await openInTerminal({ ...base, run, rex: REX });
+    expect(out.via).toBe("terminal");
+    const last = calls.at(-1)!.argv;
+    expect(last[0]).toBe("osascript");
+    expect(last.slice(-2)).toEqual(["/w/revrec", "revrec"]);
+    expect(last.join(" ")).toContain("quoted form of (item 1 of argv)");
+  });
+
+  test("with no Rex, goes straight to Terminal.app", async () => {
+    const { run, calls } = fakeRun(() => ({}));
+    expect((await openInTerminal({ ...base, run, rex: null })).via).toBe("terminal");
+    expect(calls).toHaveLength(1);
+  });
+
+  test("fails visibly with both reasons when neither opens", async () => {
+    const { run } = fakeRun((argv) => ({ code: 1, stderr: argv[0] === REX ? "no rex server" : "not allowed" }));
+    await expect(openInTerminal({ ...base, run, rex: REX })).rejects.toThrow(/Rex: .*no rex server.*Terminal: .*not allowed/);
+  });
+
+  test("a hostile directory stays one argument, never script text", () => {
+    const dir = `/tmp/x" & do shell script "rm -rf ~" & "`;
+    const argv = terminalArgv(dir, "a");
+    expect(argv.at(-2)).toBe(dir);
+    expect(argv.slice(0, -2).join(" ")).not.toContain("rm -rf");
+  });
+});
+
+describe("POST /api/agent/:name/terminal", () => {
+  let home: string;
+  let work: string;
+  let page: { url: string; stop: () => Promise<void> };
+  let calls: Call[];
+  const port = 47000 + Math.floor(Math.random() * 2000);
+  const origin = `http://127.0.0.1:${port}`;
+
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), "comb-home-"));
+    work = await mkdtemp(join(tmpdir(), "comb-work-"));
+    const dir = join(home, "agents", "revrec");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "session.json"), JSON.stringify({ name: "revrec", sessionId: "s1", parent: "maya", cwd: work, worktree: false, project: null }));
+    const fake = fakeRun(rexAnswers([]));
+    calls = fake.calls;
+    const hive = { close: async () => {} } as unknown as HiveClient;
+    page = startPage({ port, home, claudeBin: "/bin/false", run: fake.run, pollMs: 60_000, hive, rexBin: REX });
+  });
+  afterEach(async () => {
+    await page.stop();
+    await rm(home, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  });
+
+  const post = (name: string, headers: Record<string, string> = { origin }) =>
+    fetch(`${page.url}/api/agent/${encodeURIComponent(name)}/terminal`, { method: "POST", headers });
+
+  test("opens claude attach for a known agent in its directory", async () => {
+    const res = await post("revrec");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ via: "rex", dir: work, command: "claude attach revrec" });
+    const made = calls.find((c) => c.argv.includes("new"))!.argv;
+    expect(made.slice(-6)).toEqual(["--keep-open", "--json", "--", "claude", "attach", "revrec"]);
+    expect(made).toContain(work);
+  });
+
+  test("refuses unknown agents and names that are not agent names, running nothing", async () => {
+    expect((await post("nobody")).status).toBe(404);
+    expect((await post("../etc")).status).toBe(404);
+    expect((await post("revrec; rm -rf ~")).status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("refuses a POST from another origin", async () => {
+    expect((await post("revrec", { origin: "http://evil.example" })).status).toBe(403);
+    expect((await post("revrec", {})).status).toBe(403);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("says so when the agent's directory is gone", async () => {
+    await rm(work, { recursive: true, force: true });
+    const res = await post("revrec");
+    expect(res.status).toBe(409);
+    expect(calls).toHaveLength(0);
+  });
+});

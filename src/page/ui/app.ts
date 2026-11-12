@@ -907,6 +907,7 @@ function renderEntityHead() {
   if (!("kind" in n) || n.kind === "background") {
     const cmd = `claude attach ${n.name}`;
     parts.push(`<button class="copy" type="button" data-copy="${esc(cmd)}" title="Copy, then paste in a terminal to talk to ${esc(who(n.name))} there">${esc(cmd)}</button>`);
+    if (!("kind" in n)) parts.push(`<button class="copy" type="button" data-open="${esc(n.name)}" data-cmd="${esc(cmd)}" title="Open a terminal tab in ${esc(who(n.name))}'s directory running ${esc(cmd)} (also copied)">Open in terminal</button>`);
   }
   if (n.lastActive) parts.push(`<span>Active ${agoTag(n.lastActive, true)}</span>`);
   meta.innerHTML = parts.join("");
@@ -964,11 +965,36 @@ stage.addEventListener("click", (e) => {
     });
     return;
   }
+  const open = (e.target as HTMLElement).closest<HTMLElement>("[data-open]");
+  if (open) {
+    void openTerminal(open);
+    return;
+  }
   const btn = (e.target as HTMLElement).closest<HTMLElement>(".timeline [data-group]");
   if (!btn) return;
   timelineOpen.add(btn.dataset.group!);
   renderTimeline();
 });
+
+/** Asks the page server to open a terminal tab attached to the agent; copies the command too. */
+async function openTerminal(btn: HTMLElement) {
+  const name = btn.dataset.open!;
+  const label = "Open in terminal";
+  const copied = navigator.clipboard.writeText(btn.dataset.cmd!).then(() => true, () => false);
+  btn.textContent = "Opening…";
+  let msg: string;
+  try {
+    const res = await fetch(`/api/agent/${encodeURIComponent(name)}/terminal`, { method: "POST" });
+    const body = (await res.json().catch(() => ({}))) as { via?: string; error?: string };
+    msg = res.ok ? `Opened in ${body.via === "rex" ? "Rex" : "Terminal"}` : body.error ?? `Failed (${res.status})`;
+    if (await copied) msg += ". Command copied";
+  } catch (err) {
+    msg = err instanceof Error ? err.message : String(err);
+  }
+  btn.textContent = msg;
+  btn.title = msg;
+  setTimeout(() => { btn.textContent = label; }, 2600);
+}
 
 async function renderDoc(name: string, tab: Tab) {
   const body = $("ent-body");

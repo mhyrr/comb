@@ -12,6 +12,7 @@
  *   POST /api/queue/:id/answer  { answer: go | no | redirect, note } back to the asking agent
  *   POST /api/tickets/start     { project, id } handed to Maya to route
  *   POST /api/upload            an image body; saved to ~/.comb/inbox/, path returned
+ *   POST /api/agent/:name/terminal  a terminal tab in the agent's directory running `claude attach <name>`
  *   GET  /api/inbox/:file       a saved image
  *
  * Loopback only, and every request must name this server as its Host (and
@@ -27,6 +28,7 @@ import { HiveClient, listHiveProjects, type Ticket } from "../hive";
 import { resolveCombHome } from "../paths";
 import { answerMessage, readItem, recordAnswer } from "../queue";
 import { transcriptPath } from "../transcript";
+import { agentWorkdir, findRexBin, openInTerminal } from "../terminal";
 import { Tail } from "./feed";
 import { buildSnapshot, type Snapshot } from "./state";
 import page from "./ui/index.html";
@@ -39,6 +41,8 @@ export type PageOpts = {
   /** How often to poll `claude agents --json` while a page is open. */
   pollMs?: number;
   hive?: HiveClient;
+  /** The rex CLI; null means Rex is not installed. Found when omitted. */
+  rexBin?: string | null;
 };
 
 const FEED_MS = 600;
@@ -55,6 +59,7 @@ export function startPage(opts: PageOpts = {}) {
   const run = opts.run ?? runProcess;
   const pollMs = opts.pollMs ?? 2500;
   const hive = opts.hive ?? new HiveClient();
+  const rexBin = opts.rexBin !== undefined ? opts.rexBin : findRexBin();
   const enc = new TextEncoder();
 
   // --- live state ----------------------------------------------------------
@@ -299,6 +304,21 @@ export function startPage(opts: PageOpts = {}) {
         const reports = await Promise.all(files.map(async (file) => ({ file, text: await readFile(join(dir, file), "utf-8") })));
         return json({ reports });
       }),
+      "/api/agent/:name/terminal": {
+        // Only a known agent, only `claude attach <name>`, only in its own
+        // directory. The request names the agent and nothing else.
+        POST: (req) => api(req, async () => {
+          const name = req.params.name;
+          const s = /^[a-z][a-z0-9-]{0,39}$/.test(name) ? await readAgentSession(validateAgentName(name), home) : null;
+          if (!s) return json({ error: "No such agent." }, 404);
+          const dir = agentWorkdir(s);
+          if (!dir) return json({ error: `${name}'s directory is gone (${s.cwd}).` }, 409);
+          const env: Record<string, string> = {};
+          for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+          delete env.ANTHROPIC_API_KEY;
+          return json(await openInTerminal({ name, dir, run, rex: rexBin, env }));
+        }),
+      },
       "/api/agent/:name/:file": (req) => api(req, async () => {
         const file = req.params.file;
         if (!["charter", "checklist", "log"].includes(file)) return json({ error: "No such file." }, 404);
