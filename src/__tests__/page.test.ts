@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,7 +7,7 @@ import type { Run } from "../claude";
 import { parseMemory, parseTicketLine } from "../hive";
 import { Tail } from "../page/feed";
 import { installPageService, pagePlist } from "../page/service";
-import { activityOf, buildSnapshot, recentOf } from "../page/state";
+import { activityOf, buildSnapshot, FOLD_AFTER_MS, foldedAgents, recentOf, sessionFolds } from "../page/state";
 import { incoming, parseLines, PAGE_SIGNATURE, settle, toolDetail, transcriptPath } from "../transcript";
 
 const line = (o: object) => JSON.stringify(o);
@@ -191,11 +191,87 @@ describe("snapshot", () => {
     expect(snap.others.map((s) => s.name)).toEqual(["t1-search"]);
   });
 
+  test("a reported agent whose transcript is gone folds by its log's age", async () => {
+    await agent("maya", "greg", "s-maya");
+    await agent("shipped", "maya", "s-shipped");
+    await agent("fresh", "maya", "s-fresh");
+    for (const name of ["shipped", "fresh"]) {
+      await mkdir(join(home, "agents", name, "reports"), { recursive: true });
+      await writeFile(join(home, "agents", name, "reports", "2026-11-01-done.md"), "done\n");
+      await writeFile(join(home, "agents", name, "log.md"), "- did it\n");
+    }
+    const old = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+    await utimes(join(home, "agents", "shipped", "log.md"), old, old);
+
+    const snap = await buildSnapshot({ home, claudeHome, live: [] });
+    expect(snap.agents.map((a) => [a.name, a.reports, a.finished])).toEqual([
+      ["fresh", 1, false],
+      ["maya", 0, false],
+      ["shipped", 1, true],
+    ]);
+  });
+
   test("activity: busy is working, a live idle session is waiting, an ended one asleep", () => {
     expect(activityOf({ id: "", sessionId: "", name: "", cwd: "", kind: "background", status: "busy" })).toBe("working");
     expect(activityOf({ id: "", sessionId: "", name: "", cwd: "", kind: "background", status: "idle", state: "blocked" })).toBe("waiting");
     expect(activityOf({ id: "", sessionId: "", name: "", cwd: "", kind: "background", state: "blocked" })).toBe("asleep");
     expect(activityOf(undefined)).toBe("asleep");
+  });
+});
+
+describe("the Finished fold (D22)", () => {
+  const now = Date.parse("2026-11-20T12:00:00Z");
+  const daysAgo = (d: number) => new Date(now - d * 24 * 60 * 60 * 1000).toISOString();
+  type A = Parameters<typeof foldedAgents>[0][number];
+  const a = (name: string, o: Partial<A> = {}): A =>
+    ({ name, parent: "maya", activity: "asleep", lastActive: daysAgo(8), reports: 1, ...o });
+
+  test("the window is seven days", () => {
+    expect(FOLD_AFTER_MS).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  test("a reported agent idle 8 days folds; 6 days stays", () => {
+    const got = foldedAgents([a("old"), a("recent", { lastActive: daysAgo(6) })], now);
+    expect([...got]).toEqual(["old"]);
+  });
+
+  test("an agent with no report never folds, however old", () => {
+    expect(foldedAgents([a("silent", { reports: 0, lastActive: daysAgo(90) })], now).size).toBe(0);
+  });
+
+  test("maya never folds", () => {
+    expect(foldedAgents([a("maya", { parent: "greg", lastActive: daysAgo(90) })], now).size).toBe(0);
+  });
+
+  test("a parent with a child still in the list stays; when the child folds, so does the parent", () => {
+    const parent = a("lead");
+    expect([...foldedAgents([parent, a("kid", { parent: "lead", lastActive: daysAgo(2) })], now)]).toEqual([]);
+    expect([...foldedAgents([parent, a("kid", { parent: "lead" })], now)].sort()).toEqual(["kid", "lead"]);
+  });
+
+  test("a grandchild in the list keeps the whole line up", () => {
+    const got = foldedAgents([a("lead"), a("mid", { parent: "lead" }), a("leaf", { parent: "mid", activity: "working" })], now);
+    expect(got.size).toBe(0);
+  });
+
+  test("a woken agent is working and returns to the list", () => {
+    expect(foldedAgents([a("woken", { activity: "working" })], now).size).toBe(0);
+  });
+
+  test("an agent with no known activity time stays", () => {
+    expect(foldedAgents([a("unknown", { lastActive: null })], now).size).toBe(0);
+  });
+
+  test("a parent cycle does not loop", () => {
+    expect([...foldedAgents([a("x", { parent: "y" }), a("y", { parent: "x" })], now)].sort()).toEqual(["x", "y"]);
+  });
+
+  test("Greg's sessions fold after seven idle days, by last activity or start", () => {
+    expect(sessionFolds({ activity: "waiting", lastActive: daysAgo(8), startedAt: null }, now)).toBe(true);
+    expect(sessionFolds({ activity: "waiting", lastActive: daysAgo(6), startedAt: daysAgo(30) }, now)).toBe(false);
+    expect(sessionFolds({ activity: "working", lastActive: daysAgo(8), startedAt: null }, now)).toBe(false);
+    expect(sessionFolds({ activity: "waiting", lastActive: null, startedAt: daysAgo(9) }, now)).toBe(true);
+    expect(sessionFolds({ activity: "waiting", lastActive: null, startedAt: null }, now)).toBe(false);
   });
 });
 

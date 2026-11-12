@@ -3,7 +3,7 @@
  * other sessions, each with its state and what it is doing now. Built from
  * ~/.comb, `claude agents --json`, and the tail of each transcript.
  */
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -33,6 +33,10 @@ export type AgentNode = {
   note: { text: string; at: string } | null;
   /** ISO time of its last message, word, tool call or turn end. */
   lastActive: string | null;
+  /** How many files are in its reports/. */
+  reports: number;
+  /** Folded into the page's Finished group (D22). */
+  finished: boolean;
 };
 
 export type SessionNode = {
@@ -47,6 +51,8 @@ export type SessionNode = {
   note: { text: string; at: string } | null;
   lastActive: string | null;
   startedAt: string | null;
+  /** Folded into the page's Finished group (D22). */
+  finished: boolean;
 };
 
 export type Snapshot = {
@@ -101,9 +107,15 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
       now: tail?.recent.at(-1) ?? null,
       recent: tail?.recent ?? [],
       note: tail?.note ?? null,
-      lastActive: tail?.mtime ?? null,
+      // Claude Code prunes old transcripts; the log still says when it last acted.
+      lastActive: tail?.mtime ?? mtimeOf(join(dir, "log.md")),
+      reports: countFiles(join(dir, "reports")),
+      finished: false,
     });
   }
+  const now = Date.now();
+  const folded = foldedAgents(agents, now);
+  for (const a of agents) a.finished = folded.has(a.name);
 
   const mine: SessionNode[] = [];
   const others: SessionNode[] = [];
@@ -125,7 +137,9 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
       note: tail?.note ?? null,
       lastActive: tail?.mtime ?? null,
       startedAt: typeof (row as any).startedAt === "number" ? new Date((row as any).startedAt).toISOString() : null,
+      finished: false,
     };
+    if (kind === "interactive") node.finished = sessionFolds(node, now);
     (kind === "interactive" ? mine : others).push(node);
   }
   const recent = (a: SessionNode, b: SessionNode) =>
@@ -135,6 +149,65 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
 
   const queue = await listItems(home).catch(() => []);
   return { at: new Date().toISOString(), agents, mine, others, queue, error: opts.liveError ?? null };
+}
+
+/** How long a finished agent or Greg's idle session stays in the main list. */
+export const FOLD_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
+const idleFor = (lastActive: string | null, now: number) => {
+  const t = lastActive ? Date.parse(lastActive) : NaN;
+  return Number.isNaN(t) ? 0 : now - t;
+};
+
+/**
+ * Which agents fold into the Finished group (D22). An agent folds when it
+ * has written a report, is not on a turn, and has done nothing for
+ * FOLD_AFTER_MS. Maya never folds, and a parent stays while any child of
+ * its stays. Folding hides a row; it deletes nothing.
+ */
+export function foldedAgents(
+  agents: Pick<AgentNode, "name" | "parent" | "activity" | "lastActive" | "reports">[],
+  now: number,
+): Set<string> {
+  const byName = new Map(agents.map((a) => [a.name, a]));
+  const kids = new Map<string, string[]>();
+  for (const a of agents) if (a.parent !== a.name) kids.set(a.parent, [...(kids.get(a.parent) ?? []), a.name]);
+  const memo = new Map<string, boolean>();
+  const folds = (name: string, path: Set<string>): boolean => {
+    if (memo.has(name)) return memo.get(name)!;
+    const a = byName.get(name)!;
+    let ok = a.name !== "maya" && a.reports > 0 && a.activity !== "working" && idleFor(a.lastActive, now) >= FOLD_AFTER_MS;
+    path.add(name);
+    for (const k of kids.get(name) ?? []) {
+      if (!ok) break;
+      if (!path.has(k) && !folds(k, path)) ok = false;
+    }
+    path.delete(name);
+    memo.set(name, ok);
+    return ok;
+  };
+  return new Set(agents.filter((a) => folds(a.name, new Set())).map((a) => a.name));
+}
+
+/** Greg's own sessions fold the same way, by last activity alone. */
+export function sessionFolds(s: Pick<SessionNode, "activity" | "lastActive" | "startedAt">, now: number): boolean {
+  return s.activity !== "working" && idleFor(s.lastActive ?? s.startedAt, now) >= FOLD_AFTER_MS;
+}
+
+function mtimeOf(path: string): string | null {
+  try {
+    return statSync(path).mtime.toISOString();
+  } catch {
+    return null; // intentional: no log yet
+  }
+}
+
+function countFiles(dir: string): number {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile() && !e.name.startsWith(".")).length;
+  } catch {
+    return 0; // intentional: no reports folder
+  }
 }
 
 const projectCache = new Map<string, string | null>();
