@@ -107,8 +107,13 @@ export function agentPreamble(a: { name: string; dir: string; parent: string }):
 
 ${who}
 
-You are a long-lived background session. Your workspace is ${a.dir}.
-Write files only there and in the repo you work in.
+You are a background session with one job: your charter. Your workspace is
+${a.dir}. Write files only there and in the repo you work in.
+
+When the job is done, write the report, tell your parent, and stop. You are
+not done for good: follow-ups and corrections come back to you as messages,
+because your context is this job. Greg can read and message you on his page
+while you work.
 
 ## Push the work forward
 
@@ -146,9 +151,17 @@ ${parentLine}
 
 \`agent_list\` is the roster. \`agent_send\` reaches any agent or session by
 name, working or asleep. When a message names its sender, reply with
-\`agent_send\` to that name. \`agent_start\` makes a new agent for work that
-should run on its own. Tickets and memory are shared through the hive MCP
-tools.
+\`agent_send\` to that name. Tickets and memory are shared through the hive
+MCP tools.
+
+Split work the way it runs best. Use your harness's sub-agents for parallel
+reading and checks inside your job. Use \`agent_start\` for a separate job
+that should run on its own and report back: you become its parent, give it a
+charter that says what done means and where its context is, and set worktree
+when it edits code.
+
+Greg's own sessions (interactive, in \`claude agents\`) are outside the tree.
+Answer one that writes to you; never hand one work.
 
 ## Limits
 
@@ -404,6 +417,14 @@ export async function sendToAgent(opts: SendOpts): Promise<{ woke: boolean; sess
     if (!session) {
       throw new UsageError(`There is no agent or session named "${opts.name}". agent_list shows the agents; agent_start makes a new one.`);
     }
+    // Greg's own sessions are outside the tree (D9). An agent may answer one
+    // that wrote to it, but never hands it work.
+    if (!opts.fromPage && opts.from && session.kind === "interactive" && isAgent(opts.from, home)
+      && !(await heardFrom(opts.from, opts.name, home))) {
+      throw new UsageError(
+        `"${opts.name}" is one of Greg's own sessions, outside the tree. To get work done, start a task agent with agent_start; to ask Greg, use queue_add.`,
+      );
+    }
     await relayMessage(claude, opts.name, text, run);
     return { woke: false, session: null };
   }
@@ -422,5 +443,21 @@ export async function sendToAgent(opts: SendOpts): Promise<{ woke: boolean; sess
     return { woke: false, session: previous };
   }
   const { session } = await startAgent({ name, prompt: text, home, claudeBin: claude, run, wait: opts.wait });
+  await appendFile(
+    join(agentDir(name, home), "log.md"),
+    `- ${new Date().toISOString()} message from ${opts.fromPage ? "greg (page)" : opts.from ?? "unknown"} delivered (woke)\n`,
+    "utf-8",
+  );
   return { woke: true, session };
+}
+
+function isAgent(name: string, home: string): boolean {
+  return NAME_RE.test(name) && existsSync(join(agentDir(name, home), "charter.md"));
+}
+
+/** Whether `agent`'s log shows a message delivered from `session`. */
+async function heardFrom(agent: string, session: string, home: string): Promise<boolean> {
+  const log = join(agentDir(agent, home), "log.md");
+  if (!existsSync(log)) return false;
+  return (await readFile(log, "utf-8")).includes(`message from ${session} delivered`);
 }

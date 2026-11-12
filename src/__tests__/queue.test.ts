@@ -66,7 +66,7 @@ test("Start on a ticket gives Maya everything she needs and tells her not to com
   const { startTicketMessage } = await import("../page/server");
   const m = startTicketMessage("revrec", "TK-143", "Triage Sobelow findings");
   expect(m).toContain('Start revrec TK-143, "Triage Sobelow findings"');
-  expect(m).toContain("revrec project agent (start one if there is none)");
+  expect(m).toContain("Start a task agent for it in the revrec repo, on its own worktree");
   expect(m).toContain("Do not come back to Greg first");
   expect(m).toContain("queue_add");
 });

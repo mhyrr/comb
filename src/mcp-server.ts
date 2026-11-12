@@ -30,7 +30,7 @@ const server = new McpServer(
   { name: "comb", version: "0.2.0" },
   {
     instructions:
-      "comb runs agents: long-lived background sessions, each with a workspace under ~/.comb/agents/<name>/. " +
+      "comb runs agents: background sessions, one job each, with a workspace under ~/.comb/agents/<name>/. " +
       "agent_list is the roster. agent_send messages any agent or session and works whether it is working or asleep. " +
       "agent_start makes a new agent. queue_add puts a proposal, decision, review or blocker in front of Greg.",
   },
@@ -101,10 +101,11 @@ server.registerTool("queue_add", {
 
 server.registerTool("agent_start", {
   description:
-    "Make a new comb agent: a long-lived background Claude Code session with its own workspace and a charter, " +
-    "with you as its parent. Use it for work that should run on its own, not for a quick lookup (use your " +
-    "harness's sub-agents for that). Set worktree when it will edit code. To talk to an agent that already " +
-    "exists, use agent_send.",
+    "Make a new comb agent: a background Claude Code session with one job, its own workspace and a charter, " +
+    "with you as its parent. Use it for a job that should run on its own and report back, not for a quick " +
+    "lookup (use your harness's sub-agents for that). Name it <project>-<job>, e.g. 'revrec-tk109-backtest'. " +
+    "The charter carries the context: the ticket, what done means, and where the design docs and memory are. " +
+    "Set worktree when it will edit code. For a follow-up on a job that already has an agent, use agent_send.",
   inputSchema: {
     name: z.string().describe("Lowercase name, e.g. 'rate-limiter'."),
     charter: z.string().describe("What the agent is for, in prose: its scope and what done looks like."),

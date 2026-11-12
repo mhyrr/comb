@@ -341,7 +341,7 @@ export function startPage(opts: PageOpts = {}) {
 export function startTicketMessage(project: string, id: string, title: string | null): string {
   return [
     `Start ${project} ${id}${title ? `, "${title}"` : ""}. Greg clicked Start on the ticket; that is his go.`,
-    `Hand it to the ${project} project agent (start one if there is none) with what it needs from the ticket and hive memory.`,
+    `Start a task agent for it in the ${project} repo, on its own worktree, with a charter that holds what it needs: the ticket, your context, and where the design docs and hive memory are.`,
     "Do not come back to Greg first. If something blocks it that only he can clear, file it with queue_add.",
   ].join(" ");
 }

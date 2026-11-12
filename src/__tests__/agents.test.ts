@@ -309,9 +309,37 @@ describe("comb agents", () => {
 
   test("send reaches a session that is not an agent, such as Greg's", async () => {
     const claude = fakeClaude([{ id: "x", sessionId: "s-1", name: "hive-e8", cwd: repo, kind: "interactive", status: "idle", pid: 42 }]);
-    const { woke } = await sendToAgent({ name: "hive-e8", message: "done", from: "maya", home, claudeBin: "claude", run: claude.run });
+    const { woke } = await sendToAgent({ name: "hive-e8", message: "done", from: "hive-a1", home, claudeBin: "claude", run: claude.run });
     expect(woke).toBe(false);
     expect(claude.calls.find((c) => c.argv[1] === "-p")!.stdin).toContain('to "hive-e8"');
+  });
+
+  test("an agent answers Greg's session that wrote to it, but never hands one work", async () => {
+    const greg = { id: "x", sessionId: "s-g", name: "collegevalue-71", cwd: repo, kind: "interactive", status: "idle", pid: 42 };
+    const claude = fakeClaude([greg]);
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    const maya = claude.sessions.find((s) => s.name === "maya")!;
+    Object.assign(maya, { kind: "background", state: "blocked", status: "idle" });
+
+    // Cold: Maya may not route work into Greg's own session.
+    await expect(sendToAgent({ name: "collegevalue-71", message: "drop the at-risk view", from: "maya", ...base }))
+      .rejects.toThrow("one of Greg's own sessions, outside the tree");
+    expect(claude.calls.some((c) => c.argv[1] === "-p")).toBe(false);
+
+    // Once that session writes to Maya, she can answer it.
+    await sendToAgent({ name: "maya", message: "what's waiting?", from: "collegevalue-71", ...base });
+    await sendToAgent({ name: "collegevalue-71", message: "two things", from: "maya", ...base });
+    expect(claude.calls.filter((c) => c.argv[1] === "-p").at(-1)!.stdin).toContain('to "collegevalue-71"');
+  });
+
+  test("waking an agent with a message logs who sent it", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    claude.sessions[0] = { ...claude.sessions[0]!, kind: "background", state: "blocked", status: undefined };
+    await sendToAgent({ name: "maya", message: "hi", from: "comb-c8", ...base });
+    expect(await readFile(join(agentDir("maya", home), "log.md"), "utf-8")).toContain("message from comb-c8 delivered (woke)");
   });
 
   test("send to nobody, or a failed relay, is an error", async () => {
@@ -408,5 +436,12 @@ describe("agentPreamble", () => {
     const other = agentPreamble({ name: "revrec", dir: "/w", parent: "maya" });
     expect(other).toContain("Its name and role are Maya's.");
     expect(other).toContain('Your parent is the agent "maya".');
+  });
+
+  test("every agent is told it has one job, takes follow-ups, and stays off Greg's sessions", () => {
+    const p = agentPreamble({ name: "revrec-tk109", dir: "/w", parent: "maya" });
+    expect(p).toContain("with one job: your charter");
+    expect(p).toContain("follow-ups and corrections come back to you");
+    expect(p).toContain("Greg's own sessions (interactive, in `claude agents`) are outside the tree.");
   });
 });

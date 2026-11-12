@@ -11,7 +11,7 @@ think, research, design, implement, test, review. comb exists so he can hand
 that loop off, get the idea across, and then manage, nudge and guide
 direction instead of writing a design doc and iterating every time.
 
-comb is a small supervision tree of long-lived Claude Code agents, with what
+comb is a small supervision tree of Claude Code agents, one job each, with what
 needs Greg gathered in one place.
 
 **comb is a layer on top of hive, not a new version of it.**
@@ -81,27 +81,37 @@ makes the agent the parent of what it starts.
 
 ## 3. The tree
 
-One concept: an **agent**, a long-lived Claude Code background session with
+One concept: an **agent**, a Claude Code background session with one job,
 its own workspace, a charter, skills and a parent. The tree is who started
 whom.
 
 ```
 Greg
- └─ Maya, chief of staff          (charter: look across everything)
-     ├─ revrec                    (charter: the revrec project)
-     │   ├─ rate-limiter          (charter: build TK-142, own worktree)
-     │   └─ reviewer              (charter: review rate-limiter's branch)
-     ├─ matreas                   (charter: the matreas project)
-     └─ release-notes             (started by Maya directly)
+ ├─ Maya, chief of staff              (charter: look across everything)
+ │   ├─ revrec-tk109-backtest         (charter: build TK-109 step 1, own worktree)
+ │   │   └─ revrec-tk109-review       (charter: review the backtest branch)
+ │   ├─ collegevalue-show-hn          (charter: draft the Show HN post)
+ │   └─ release-notes                 (charter: this week's notes)
+ └─ Greg's own sessions               (outside the tree; on the page, not Maya's)
 ```
 
 - **Maya** is the chief of staff at the top. She thinks across everything:
   conflicts, duplicated work, shared blockers, priorities.
-- **Project agents** sit under Maya, one per project on an explicit list
-  (D5). Each starts with its project's hive context.
-- **Any agent can start children.** A child lives as long as it is useful,
-  can be messaged later, and can start its own children.
-- **An agent ends** when its parent decides it is done.
+- **Task agents** sit under Maya, one per job (D21): a ticket, an approved
+  proposal, a review. Each starts fresh, in the project's repo on its own
+  worktree, with a charter that carries its context: what done means, the
+  ticket, Maya's context, and where the design docs and hive memory are.
+- **A job keeps its agent.** Follow-ups, review fixes and Greg's redirects go
+  to the agent already doing that job, because its context is that job. A
+  new job gets a new agent. Greg reads and messages any of them on his page.
+- **Any agent can start children** for a separate job, and uses its own
+  sub-agents for parallel reading inside its job. That gives three levels:
+  Maya, task agents, and their children.
+- **An agent finishes** with a report and stops working. Its workspace and
+  session stay, so a message wakes it with its history.
+- **Greg's own sessions are outside the tree** (D9). The page shows them and
+  he can message them there. An agent may answer one that wrote to it, and
+  comb refuses an agent's message to one that did not.
 - **Claude sub-agents** live inside an agent's session and are invisible to
   comb. The agent that used them answers for them.
 - Agents are real background sessions (visible in `claude agents`), never
@@ -169,7 +179,7 @@ in one file Greg can edit. (Open question Q1.)
 | **Core** | Every agent | The workspace contract, talking in the tree, when to decide vs. escalate, using hive memory and tickets |
 | **Work loop** | Agents that build | §5.1 |
 | **Maya** | The chief of staff | Reading the whole tree, ranking the queue, spotting collisions, supervising quiet children |
-| **Project** | Project agents | Ticket workflow, starting builder and reviewer children, proposals as small bets. Stack skills come from the repo (`hive stack`) |
+| **Task** | Task agents | Ticket workflow, starting reviewer children, proposals as small bets. Stack skills come from the repo (`hive stack`) |
 | **Task** | Children | Whatever the parent picks when it calls `agent_start` |
 
 - **Keep the core lean.** Every skill's description sits in context; long
@@ -317,9 +327,9 @@ that fills with honey while it works; that is the page's one ambient motion.
   instruction).** The page delivers the answer to the asking agent first and
   marks the item only after delivery, so an undelivered answer stays open.
   Each answer writes `precedents/<item-id>.md` with his reason (D13).
-- **Start on a ticket** sends Maya one signed message: start it, hand it to
-  the project agent (starting one if needed) with the ticket and memory, and
-  do not come back to Greg first. Maya routes; the page does not.
+- **Start on a ticket** sends Maya one signed message: start a task agent
+  for it (D21) with the ticket, her context and where the docs and memory
+  are, and do not come back to Greg first. Maya routes; the page does not.
 - **Now is the dashboard:** Waiting on you, Working now, Latest from your
   sessions (each one's last words), Priority tickets (open P0 and P1, each
   with Start), Finished work (reports with their first paragraph).
@@ -335,8 +345,7 @@ that fills with honey while it works; that is the page's one ambient motion.
 - **D3. Recovery is from the workspace.** Agents keep what matters in
   `log.md` and `memory/`, not in context.
 - **D4. Watches and campaigns are deleted** from hive (hive PR #41).
-- **D5. Project agents come from an explicit list.** Six to start: matreas,
-  revrec, arete, writing, investing, hive.
+- **D5. (Replaced by D21.)** Project agents came from an explicit list of six.
 - **D6. Messages ride the harness** (2026-11-10). No comb `message` tool.
   All comb agents run in one permission mode (`auto`, override with
   `COMB_PERMISSION_MODE`), because Claude holds messages between sessions in
@@ -346,7 +355,9 @@ that fills with honey while it works; that is the page's one ambient motion.
 - **D8. Incoming messages ride the harness.** Busy-session behavior is
   Claude Code's.
 - **D9. No driving mode.** Greg's sessions stay outside the tree and talk to
-  Maya. He can still `claude attach` to watch any agent.
+  Maya. He can still `claude attach` to watch any agent. (2026-11-12) They
+  show on the page and Greg can message them there; they are still not
+  Maya's to hand work to, and comb enforces that (§3).
 - **D10. comb is its own tool on top of hive** (2026-11-11). Separate repo,
   binary, state (`~/.comb`) and MCP server (`comb-mcp`). It reads hive and
   never writes `~/.hive`. Supersedes "hv runs beside hive until cutover."
@@ -385,6 +396,14 @@ that fills with honey while it works; that is the page's one ambient motion.
   the workspace (`{"model": "opus"}`), passed as `--model` on every start and
   wake. Maya runs on Opus. Before this, agents got Claude Code's default and
   Maya was running on Fable.
+- **D21. One task agent per job, not one agent per project** (2026-11-12,
+  §3). Greg: "keeping a strong context window is very important... spawn up a
+  new agent with the context necessary to do the work." A project's lasting
+  context is in files (hive memory, tickets, branches, reports), so a
+  long-lived project agent would only gather stale turns. The cost is a cold
+  start per job, so small things (a memory note, a ticket update) Maya does
+  herself. Found when Maya's queue items named `collegevalue-71`, Greg's own
+  CLI session, as the collegevalue agent.
 
 ## 11. Open questions
 
@@ -404,8 +423,8 @@ that fills with honey while it works; that is the page's one ambient motion.
    and a message box per agent through the relay.
 4. **Supervision.** Exit and hang detection reaches the parent; restart from
    the workspace.
-5. **Maya and the six project agents.** `comb maya`; project agents from
-   the list.
+5. **Maya and task agents.** (Done 2026-11-12.) Maya starts one task agent
+   per job (D21).
 6. **Queue and precedents.** `queue_add`, `precedents_search`, Waiting and
    Reports on the page.
 

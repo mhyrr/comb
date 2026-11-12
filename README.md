@@ -4,7 +4,7 @@ Agents that work on Greg's projects, layered on [hive](../hive).
 
 hive is the personalization layer: who you are and what you know (identity,
 memory, taste, tickets). comb is the work layer: who is working on what. It
-runs long-lived Claude Code background sessions in a supervision tree, gives
+runs Claude Code background sessions in a supervision tree, one job each, gives
 each one a workspace, and gathers what needs Greg in one place.
 
 See [docs/design.md](docs/design.md).
