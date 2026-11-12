@@ -15,6 +15,7 @@ See [docs/design.md](docs/design.md).
 comb init
 comb start revrec --cwd ~/work/revrec --charter "Own the revrec project: ..."
 comb list
+comb page                   # open the live page (comb init keeps it running at login)
 claude attach <id>          # watch an agent
 ```
 
@@ -28,4 +29,5 @@ bun test
 bun run build                # comb-bin and comb-mcp
 rm -f ~/.local/bin/comb ~/.local/bin/comb-mcp
 cp comb-bin ~/.local/bin/comb && cp comb-mcp ~/.local/bin/comb-mcp
+comb init                    # reloads the page service onto the new binary
 ```

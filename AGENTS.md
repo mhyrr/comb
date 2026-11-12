@@ -19,15 +19,23 @@ comb is the work layer on top of hive. Read `docs/design.md` first.
 
 ## Layout
 
-- `src/cli.ts`: the `comb` command.
-- `src/mcp-server.ts`: comb-mcp (`agent_start`, `agent_list`).
+- `src/cli.ts`: the `comb` command, including `comb page`.
+- `src/mcp-server.ts`: comb-mcp (`agent_list`, `agent_send`, `agent_start`,
+  `queue_add`).
+- `src/queue.ts`: the queue (`~/.comb/queue/`) and precedents.
 - `src/agents.ts`: workspaces, the start path, the core contract.
 - `src/claude.ts`: the Claude Code adapter (`--bg`, `claude agents --json`).
-- `src/hive.ts`: the hive interface.
+- `src/hive.ts`: the hive interface, including the read-only hive MCP client
+  the page uses for tickets and memory.
+- `src/transcript.ts`: reads Claude Code transcripts into feed events.
+- `src/page/`: comb's page (design §9.1). `server.ts` is the local server,
+  `state.ts` the tree snapshot, `feed.ts` the transcript tail, `ui/` the
+  browser code (plain TypeScript, bundled into the binary by Bun).
 - `src/paths.ts`: `~/.comb`.
 
 ## Build and install
 
 `bun run build`, then rm and cp `comb-bin` to `~/.local/bin/comb` and
 `comb-mcp` to `~/.local/bin/comb-mcp`. On macOS, never copy over an existing
-binary in place (rm first).
+binary in place (rm first). Then run `comb init`: it reloads the
+`com.comb.page` launch agent so the page runs the new binary.

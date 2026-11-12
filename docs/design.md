@@ -260,6 +260,71 @@ ships a native send.
 So the page can answer from the start: approve / reject / redirect with a
 reason on a queue item, and a short message to any agent.
 
+### 9.1 The page, first cut (built 2026-11-11)
+
+It is always up at `http://127.0.0.1:4747`: `comb init` installs a launchd
+agent, `com.comb.page`, that runs `comb page --serve` at login and restarts it
+if it exits (log: `~/.comb/logs/page.log`). Greg never starts it (D16);
+`comb page` just opens it. It answers what hive's dashboard
+does not: it is one screen, live, and interactive. Greg rejected the hive
+dashboard as too busy, too long, and read-only.
+
+**Layout.** One viewport with no page scroll. Three panes:
+
+| Pane | Shows |
+|---|---|
+| Left | The tree (Greg → Maya → children), then Greg's own open sessions, then other sessions |
+| Center | The selected agent or session: Activity, and for agents Charter, Log and Reports. Tickets and Memory take over the center from the top bar |
+| Right | Maya, always open: the conversation, and a box to message her |
+
+⌘K jumps to any agent, session, project's tickets or memory.
+
+**Where each thing comes from.**
+
+- The tree and its state: `~/.comb/agents/*/session.json` joined with
+  `claude agents --json`, polled every 2.5 seconds while a page is open.
+  `working` is a live session on a turn. `waiting` is live and idle. `asleep`
+  is ended or retired; a message still wakes it (D17).
+- Live work: the session transcript,
+  `~/.claude/projects/<cwd with / and . as ->/<sessionId>.jsonl`, tailed and
+  parsed into four events: a message in, the agent's text, a tool call (and
+  its result), and the end of a turn. Sub-agent (sidechain) lines are
+  skipped: the agent answers for them.
+- Maya's conversation is her transcript. The page sends with
+  `sendToAgent`, signed "Greg, on the comb page", and asks for no
+  `agent_send` reply. Her answer is her next turn, which the page shows. No
+  reply routing exists.
+- Tickets and memory: the page server is an MCP client of the `hive` server,
+  launched with the command in Greg's user-scope Claude config. Read-only.
+
+**Safety.** The server binds to loopback, and refuses requests whose `Host`
+or `Origin` is not its own, so another site cannot post messages to agents.
+
+**Look.** Light first, dark follows the OS. Porcelain ground, indigo ink,
+one honey accent that only ever means "working". Schibsted Grotesk; Fragment
+Mono only for code (tool calls, paths, commands). Each agent is a hex cell
+that fills with honey while it works; that is the page's one ambient motion.
+
+### 9.2 The queue, first cut (built 2026-11-11)
+
+- **Agents file; the page never parses prose.** `queue_add` (comb-mcp) takes
+  a kind (proposal, decision, review, blocker), a title, what the agent does
+  on "go", and its case in Markdown. Each item is
+  `~/.comb/queue/<date>-<slug>/item.md`: `key: value` lines between `---`
+  fences, then the case. The core contract tells every agent to file asks
+  this way instead of burying them in a reply.
+- **Greg answers with Go, Not now (optional reason) or Redirect (required
+  instruction).** The page delivers the answer to the asking agent first and
+  marks the item only after delivery, so an undelivered answer stays open.
+  Each answer writes `precedents/<item-id>.md` with his reason (D13).
+- **Start on a ticket** sends Maya one signed message: start it, hand it to
+  the project agent (starting one if needed) with the ticket and memory, and
+  do not come back to Greg first. Maya routes; the page does not.
+- **Now is the dashboard:** Waiting on you, Working now, Latest from your
+  sessions (each one's last words), Priority tickets (open P0 and P1, each
+  with Start), Finished work (reports with their first paragraph).
+- Not built yet: Maya ranking the queue, and `precedents_search`.
+
 ## 10. Decisions
 
 - **D1. Maya is a background Claude Code session on the subscription.**
@@ -306,6 +371,20 @@ reason on a queue item, and a short message to any agent.
   any open session by name, so replies use the same verb. `agent_list` shows
   only working or ready. Verified live: a stopped Maya woke on `comb send` in
   1 second and replied to Greg's session through `agent_send`.
+
+- **D18. The page is one live screen; a transcript is the conversation**
+  (2026-11-11, §9.1). Greg: the hive dashboard is "too busy and long" and
+  "not interactive". Light first. Messages from the page are read back from
+  the agent's transcript rather than routed as replies.
+
+- **D19. Asks are filed, not inferred** (2026-11-11, §9.2). The page shows
+  what agents put in the queue with `queue_add`; it never reads proposals out
+  of their prose. Greg: "click a button and say, yeah, that's a good idea, go
+  do it."
+- **D20. Each agent's model is a setting** (2026-11-11). `settings.json` in
+  the workspace (`{"model": "opus"}`), passed as `--model` on every start and
+  wake. Maya runs on Opus. Before this, agents got Claude Code's default and
+  Maya was running on Fable.
 
 ## 11. Open questions
 
