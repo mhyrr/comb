@@ -307,6 +307,17 @@ dashboard as too busy, too long, and read-only.
 - Tickets and memory: the page server is an MCP client of the `hive` server,
   launched with the command in Greg's user-scope Claude config. Read-only.
 
+**Finished.** Finished agents fold out of the tree into a collapsed
+**Finished** group under it (D22). A task agent folds when it has at least
+one file in `reports/`, is not on a turn, and has done nothing for 7 days
+(`FOLD_AFTER_MS` in `src/page/state.ts`). Its last activity is its
+transcript's last event, or `log.md`'s mtime once Claude Code has pruned the
+transcript. Maya never folds. A parent stays while any child of its stays.
+Greg's own sessions fold the same way by last activity, into a Finished
+group under Your sessions. The group opens with one click, and opens by
+itself when the selected row is in it. Folding deletes nothing: a message
+still wakes the agent, and a woken agent is back in the tree.
+
 **Safety.** The server binds to loopback, and refuses requests whose `Host`
 or `Origin` is not its own, so another site cannot post messages to agents.
 
@@ -404,6 +415,15 @@ that fills with honey while it works; that is the page's one ambient motion.
   start per job, so small things (a memory note, a ticket update) Maya does
   herself. Found when Maya's queue items named `collegevalue-71`, Greg's own
   CLI session, as the collegevalue agent.
+- **D22. Finished agents fold; they are never deleted** (2026-11-12, §9.1).
+  Greg asked whether old sessions age off. They did not: a finished agent
+  keeps its workspace and session so a message wakes it (D17), and the tree
+  only grew. Now a task agent with a report and 7 idle days folds into a
+  collapsed Finished group, and Greg's sessions fold after 7 idle days. Maya
+  never folds, and a parent with a child still in the list stays. The rule is
+  a pure function on the snapshot (`foldedAgents`, `sessionFolds`), so the
+  page only renders it. A report is the signal for "finished" because an
+  agent with no report has not handed anything back yet.
 
 ## 11. Open questions
 

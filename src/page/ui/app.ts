@@ -350,11 +350,34 @@ rail.innerHTML = `
   <h2>Agents</h2>
   <div class="root-row"><span class="you">G</span>Greg</div>
   <ul id="tree"></ul>
+  <button class="fold" id="tree-fold" type="button" hidden></button>
+  <ul id="tree-finished" class="finished" hidden></ul>
   <h2>Your sessions <span id="mine-count"></span></h2>
   <ul id="mine"></ul>
+  <button class="fold" id="mine-fold" type="button" hidden></button>
+  <ul id="mine-finished" class="finished" hidden></ul>
   <h2 id="others-head">Other sessions <span id="others-count"></span></h2>
   <ul id="others"></ul>`;
 const expanded = { mine: false, others: false };
+// Finished agents and sessions (D22) stay folded until Greg opens them.
+const unfolded = { tree: false, mine: false };
+for (const which of ["tree", "mine"] as const) {
+  $(`${which}-fold`).addEventListener("click", () => { unfolded[which] = !unfolded[which]; renderRail(); });
+}
+
+/** The Finished toggle and its list. It opens by itself when the selected row is in it. */
+function renderFolded(which: "tree" | "mine", specs: RowSpec[]) {
+  const btn = $(`${which}-fold`);
+  const ul = $(`${which}-finished`);
+  btn.hidden = !specs.length;
+  const open = specs.length > 0 && (unfolded[which] || specs.some((s) => s.current));
+  ul.hidden = !open;
+  btn.setAttribute("aria-expanded", String(open));
+  const chev = `<svg class="chev" viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 2l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const label = `${chev}Finished <span class="count">${specs.length}</span>`;
+  if (btn.innerHTML !== label) btn.innerHTML = label;
+  reconcile(ul, open ? specs : []);
+}
 
 type RowSpec = { key: string; href: string; depth: number; node: AgentNode | SessionNode; current: boolean };
 
@@ -415,12 +438,17 @@ function renderRail() {
   const cur = (n: AgentNode | SessionNode) =>
     "kind" in n ? route.view === "session" && route.id === n.sessionId : route.view === "agent" && route.name === n.name;
 
-  const tree = treeOrder(snap.agents);
-  reconcile($("tree"), tree.map(({ node, depth }) => ({ key: `a:${node.name}`, href: hrefFor(node), depth, node, current: cur(node) })));
-  if (!tree.length) $("tree").innerHTML = `<li class="note">No agents yet. Ask any session to start one.</li>`;
+  const agentRow = ({ node, depth }: { node: AgentNode; depth: number }): RowSpec =>
+    ({ key: `a:${node.name}`, href: hrefFor(node), depth, node, current: cur(node) });
+  const tree = treeOrder(snap.agents.filter((a) => !a.finished));
+  reconcile($("tree"), tree.map(agentRow));
+  if (!tree.length && !snap.agents.length) $("tree").innerHTML = `<li class="note">No agents yet. Ask any session to start one.</li>`;
+  renderFolded("tree", treeOrder(snap.agents.filter((a) => a.finished)).map(agentRow));
+  renderFolded("mine", snap.mine.filter((s) => s.finished)
+    .map((node) => ({ key: `s:${node.sessionId}`, href: hrefFor(node), depth: 0, node, current: cur(node) })));
 
   for (const which of ["mine", "others"] as const) {
-    const list = snap[which];
+    const list = which === "mine" ? snap.mine.filter((s) => !s.finished) : snap.others;
     const limit = expanded[which] ? list.length : 6;
     const ul = $(which);
     ul.querySelectorAll(":scope > .more-li").forEach((x) => x.remove());
