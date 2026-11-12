@@ -123,6 +123,8 @@ export type StartSpec = {
   mcpConfigFile: string;
   prompt: string;
   permissionMode: string;
+  /** Model alias or ID ("opus", "sonnet", "fable"). Omitted, Claude Code's default. */
+  model?: string;
   /** Session ID to resume instead of starting fresh. */
   resume?: string;
   /** Ask Claude to make a git worktree (named after the agent). */
@@ -137,6 +139,7 @@ export function buildStartArgv(claude: string, spec: StartSpec): string[] {
     "--mcp-config", spec.mcpConfigFile,
     "-n", spec.name,
     "--permission-mode", spec.permissionMode,
+    ...(spec.model ? ["--model", spec.model] : []),
     "--append-system-prompt-file", spec.systemPromptFile,
   ];
   if (spec.resume) argv.push("--resume", spec.resume);

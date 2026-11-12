@@ -13,6 +13,7 @@ import { join, resolve } from "node:path";
 
 import { UsageError } from "./errors";
 import { hiveIdentity, projectForDir } from "./hive";
+import { PAGE_SIGNATURE } from "./transcript";
 import { ensureCombScaffold, resolveCombHome } from "./paths";
 import {
   findClaudeBin,
@@ -38,8 +39,28 @@ export type AgentSession = {
   cwd: string;
   worktree: boolean;
   permissionMode: string;
+  /** The model it was started with, from its settings.json; null for Claude Code's default. */
+  model?: string | null;
   startedAt: string;
 };
+
+/** Per-agent settings Greg can edit: `<workspace>/settings.json`. */
+export type AgentSettings = { model?: string };
+
+export async function readAgentSettings(dir: string): Promise<AgentSettings> {
+  const path = join(dir, "settings.json");
+  if (!existsSync(path)) return {};
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf-8")) as AgentSettings;
+    return typeof parsed === "object" && parsed ? parsed : {};
+  } catch (err) {
+    throw new UsageError(`${path} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+export async function writeAgentSettings(dir: string, settings: AgentSettings): Promise<void> {
+  await writeFile(join(dir, "settings.json"), JSON.stringify(settings, null, 2) + "\n", "utf-8");
+}
 
 const NAME_RE = /^[a-z][a-z0-9-]{0,39}$/;
 
@@ -99,6 +120,10 @@ questions asked.
 - Bring it up first, with your recommendation, when the step is external
   (TRUST.md), cannot be undone, or sets direction Greg has not set: a design
   call, a change of scope, a trade-off he would want to weigh.
+- To bring something to Greg, file it with \`queue_add\`: one item per ask,
+  with what you will do on "go" and your case for it. Greg answers on his
+  page with Go, Not now or Redirect, and the answer comes back to you as a
+  message. Do not bury asks in a report or a long reply; he acts on the queue.
 - When you wait on an answer, keep working on what does not depend on it.
 - For a second opinion, use a sub-agent. Council needs Greg's yes.
 
@@ -171,6 +196,8 @@ export type StartAgentOpts = {
   prompt?: string;
   home?: string;
   permissionMode?: string;
+  /** Model for this agent. Saved to its settings.json, so restarts keep it. */
+  model?: string;
   claudeBin?: string;
   run?: Run;
   wait?: (ms: number) => Promise<void>;
@@ -226,6 +253,12 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
     ? "You were restarted from your workspace. Read charter.md, checklist.md, memory/ and the end of log.md, then carry on."
     : "Read your charter.md and checklist.md, then begin.");
   const permissionMode = opts.permissionMode ?? process.env.COMB_PERMISSION_MODE ?? "auto";
+  const settings = await readAgentSettings(dir);
+  if (opts.model?.trim() && opts.model.trim() !== settings.model) {
+    settings.model = opts.model.trim();
+    await writeAgentSettings(dir, settings);
+  }
+  const model = settings.model?.trim() || undefined;
 
   // A previous session that died keeps its history; wake it rather than lose it.
   const resume = previous && previous.cwd === cwd ? previous.sessionId : undefined;
@@ -233,7 +266,7 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
   try {
     started = await startBackground(
       claude,
-      { name, cwd, systemPromptFile, mcpConfigFile, prompt, permissionMode, resume, worktree: !resume && opts.worktree },
+      { name, cwd, systemPromptFile, mcpConfigFile, prompt, permissionMode, model, resume, worktree: !resume && opts.worktree },
       run,
       opts.wait,
     );
@@ -254,13 +287,14 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
     cwd: started.cwd,
     worktree: previous?.worktree ?? !!opts.worktree,
     permissionMode,
+    model: model ?? null,
     startedAt: new Date().toISOString(),
   };
   await writeFile(join(dir, "session.json"), JSON.stringify(session, null, 2) + "\n", "utf-8");
   const verb = ranBefore ? (resume ? "resumed" : "restarted") : "started";
   await appendFile(
     join(dir, "log.md"),
-    `- ${session.startedAt} ${verb} by ${parent} in ${session.cwd} (session ${session.id})\n`,
+    `- ${session.startedAt} ${verb} by ${parent} in ${session.cwd} (session ${session.id}${model ? `, model ${model}` : ""})\n`,
     "utf-8",
   );
   return { session, restarted: ranBefore, dir };
@@ -340,6 +374,8 @@ export type SendOpts = {
   message: string;
   /** Session name to reply to. Omitted, the agent is not asked to reply. */
   from?: string | null;
+  /** Greg wrote it on comb's page. He reads the answer there, in the agent's transcript. */
+  fromPage?: boolean;
   home?: string;
   claudeBin?: string;
   run?: Run;
@@ -356,9 +392,11 @@ export async function sendToAgent(opts: SendOpts): Promise<{ woke: boolean; sess
   const home = opts.home ?? resolveCombHome();
   const run = opts.run ?? runProcess;
   const claude = opts.claudeBin ?? findClaudeBin();
-  const text = opts.from
-    ? `Message from ${opts.from}. Reply with the comb agent_send tool to "${opts.from}".\n\n${opts.message}`
-    : opts.message;
+  const text = opts.fromPage
+    ? `${PAGE_SIGNATURE}\n(He reads your answer on the page. Answer in your reply; do not use agent_send for it.)\n\n${opts.message}`
+    : opts.from
+      ? `Message from ${opts.from}. Reply with the comb agent_send tool to "${opts.from}".\n\n${opts.message}`
+      : opts.message;
 
   if (!NAME_RE.test(name) || !existsSync(join(agentDir(name, home), "charter.md"))) {
     // Not an agent: a live session by that name, such as Greg's, still gets it.
@@ -378,7 +416,7 @@ export async function sendToAgent(opts: SendOpts): Promise<{ woke: boolean; sess
     await relayMessage(claude, name, text, run);
     await appendFile(
       join(agentDir(name, home), "log.md"),
-      `- ${new Date().toISOString()} message from ${opts.from ?? "unknown"} delivered\n`,
+      `- ${new Date().toISOString()} message from ${opts.fromPage ? "greg (page)" : opts.from ?? "unknown"} delivered\n`,
       "utf-8",
     );
     return { woke: false, session: previous };

@@ -9,7 +9,7 @@ import { mkdir, readFile, symlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { createWorkspace, agentDir } from "./agents";
+import { createWorkspace, agentDir, readAgentSettings, writeAgentSettings } from "./agents";
 import { UsageError } from "./errors";
 import { ensureCombScaffold, resolveCombHome } from "./paths";
 
@@ -46,6 +46,16 @@ export async function combInit(opts: {
     const charter = await readFile(join(repo, "templates", "maya-charter.md"), "utf-8");
     await createWorkspace(mayaDir, "maya", charter);
     lines.push(`maya: workspace created (${mayaDir})`);
+  }
+
+  // The chief of staff thinks across everything; she runs on Opus unless
+  // Greg's settings.json for her says otherwise.
+  const mayaSettings = await readAgentSettings(mayaDir);
+  if (!mayaSettings.model) {
+    await writeAgentSettings(mayaDir, { ...mayaSettings, model: "opus" });
+    lines.push("maya: model set to opus (settings.json)");
+  } else {
+    lines.push(`maya: model ${mayaSettings.model}`);
   }
 
   await mkdir(skillsDir, { recursive: true });

@@ -68,3 +68,13 @@ test("the first start of an init-made workspace is a start, not a restart", asyn
   const log = await readFile(join(opts.home, "agents", "maya", "log.md"), "utf-8");
   expect(log).toContain("started by greg");
 });
+
+test("init puts Maya on Opus, and leaves a model Greg chose alone", async () => {
+  const first = await combInit(opts);
+  expect(first.lines).toContain("maya: model set to opus (settings.json)");
+  const settings = join(opts.home, "agents", "maya", "settings.json");
+  expect(JSON.parse(await readFile(settings, "utf-8"))).toEqual({ model: "opus" });
+  await writeFile(settings, JSON.stringify({ model: "sonnet" }));
+  expect((await combInit(opts)).lines).toContain("maya: model sonnet");
+  expect(JSON.parse(await readFile(settings, "utf-8"))).toEqual({ model: "sonnet" });
+});

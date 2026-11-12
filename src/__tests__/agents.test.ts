@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { agentDir, agentPreamble, listAgents, sendToAgent, startAgent, validateAgentName } from "../agents";
 import { buildStartArgv, childEnv, parseBackgrounded, type LiveSession, type Run } from "../claude";
 import { projectForDir } from "../hive";
+import { incoming } from "../transcript";
 
 /**
  * A stand-in for the claude CLI. `--bg` "starts" a session and adds it to the
@@ -117,6 +118,29 @@ describe("comb agents", () => {
       "--append-system-prompt-file", join(dir, "system-prompt.md"),
       "Read your charter.md and checklist.md, then begin.",
     ]);
+  });
+
+  test("a model is passed on every start and kept for restarts in settings.json", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    const first = await startAgent({ name: "maya", charter: "c", cwd: repo, model: "opus", ...base });
+    expect(first.session.model).toBe("opus");
+    const bgArgv = () => claude.calls.filter((c) => c.argv[1] === "--bg").at(-1)!.argv;
+    expect(bgArgv().slice(0, 9)).toEqual(["claude", "--bg", "--mcp-config", join(first.dir, "mcp.json"), "-n", "maya", "--permission-mode", "auto", "--model"]);
+    expect(bgArgv()[9]).toBe("opus");
+    expect(JSON.parse(await readFile(join(first.dir, "settings.json"), "utf-8"))).toEqual({ model: "opus" });
+
+    // Asleep, then woken by a message: same model, without anyone naming it.
+    claude.sessions.length = 0;
+    await sendToAgent({ name: "maya", message: "go", ...base });
+    expect(bgArgv()).toContain("--resume");
+    expect(bgArgv()[bgArgv().indexOf("--model") + 1]).toBe("opus");
+  });
+
+  test("with no model set, no --model flag is passed", async () => {
+    const claude = fakeClaude();
+    await startAgent({ name: "plain", charter: "c", cwd: repo, home, claudeBin: "claude", run: claude.run, wait: noWait });
+    expect(claude.calls.find((c) => c.argv[1] === "--bg")!.argv).not.toContain("--model");
   });
 
   test("a child names its parent and how to reach it", async () => {
@@ -251,6 +275,21 @@ describe("comb agents", () => {
     expect(relay.stdin).toContain("what's waiting on me?");
     expect(relay.env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(claude.calls.filter((c) => c.argv[1] === "--bg")).toHaveLength(1);
+  });
+
+  test("a message from the page is signed as Greg's and asks for no agent_send reply", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    claude.sessions[0] = { ...claude.sessions[0]!, kind: "background", state: "blocked", status: "idle" };
+
+    await sendToAgent({ name: "maya", message: "what's waiting on me?", fromPage: true, ...base });
+    const relay = claude.calls.find((c) => c.argv[1] === "-p")!;
+    const body = relay.stdin!.split("<<<MESSAGE\n")[1]!.split("\nMESSAGE>>>")[0]!;
+    // The page reads it back from the transcript as Greg's own words.
+    expect(incoming(body, "comb")).toEqual({ from: "greg", text: "what's waiting on me?" });
+    expect(body).not.toContain("Reply with the comb agent_send tool");
+    expect(await readFile(join(agentDir("maya", home), "log.md"), "utf-8")).toContain("message from greg (page) delivered");
   });
 
   test("send to an asleep agent resumes it with the message and keeps its parent", async () => {

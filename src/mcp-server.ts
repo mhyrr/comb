@@ -1,7 +1,8 @@
 /**
  * comb-mcp: comb's MCP tools. comb hands it to each agent it starts with
  * --mcp-config (COMB_AGENT names that agent); Greg's sessions load it from
- * user scope. Three tools: the roster, a message to anyone, a new agent.
+ * user scope. Four tools: the roster, a message to anyone, a new agent, and
+ * an item in front of Greg.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -9,6 +10,7 @@ import { z } from "zod";
 
 import { formatAgentList, GREG, listAgents, sendToAgent, startAgent } from "./agents";
 import { findClaudeBin, listLiveSessions } from "./claude";
+import { addItem } from "./queue";
 
 /**
  * Who is calling: the agent this server was started for, or else the Claude
@@ -30,7 +32,7 @@ const server = new McpServer(
     instructions:
       "comb runs agents: long-lived background sessions, each with a workspace under ~/.comb/agents/<name>/. " +
       "agent_list is the roster. agent_send messages any agent or session and works whether it is working or asleep. " +
-      "agent_start makes a new agent.",
+      "agent_start makes a new agent. queue_add puts a proposal, decision, review or blocker in front of Greg.",
   },
 );
 
@@ -73,6 +75,30 @@ server.registerTool("agent_send", {
   }
 });
 
+server.registerTool("queue_add", {
+  description:
+    "Put something in front of Greg: a proposal worth doing, a decision that is his, work ready for his review, " +
+    "or a blocker only he can clear. It appears on his page with Go / Not now / Redirect, and his answer comes back " +
+    "to you as a message. File one item per ask, with your recommendation, instead of asking in prose. Do not " +
+    "file what you can decide yourself.",
+  inputSchema: {
+    kind: z.enum(["proposal", "decision", "review", "blocker"]),
+    title: z.string().describe("What Greg says yes or no to, in under 80 characters. E.g. 'Start a revrec agent on TK-143'."),
+    action: z.string().describe("Exactly what you will do when he says go, in one sentence."),
+    why: z.string().describe("Your case in Markdown: why now, your recommendation, the evidence, what it costs."),
+    project: z.string().optional().describe("The hive project, if there is one."),
+    ticket: z.string().optional().describe("The ticket ID, if there is one."),
+  },
+}, async ({ kind, title, action, why, project, ticket }) => {
+  try {
+    const from = (await caller()) ?? "unknown";
+    const item = await addItem({ kind, from, title, action, body: why, project, ticket });
+    return { content: [{ type: "text" as const, text: `Filed ${item.id}. Greg's answer will come to "${from}" as a message.` }] };
+  } catch (err) {
+    return fail(err);
+  }
+});
+
 server.registerTool("agent_start", {
   description:
     "Make a new comb agent: a long-lived background Claude Code session with its own workspace and a charter, " +
@@ -85,11 +111,12 @@ server.registerTool("agent_start", {
     prompt: z.string().optional().describe("First message. Defaults to reading its charter and beginning."),
     cwd: z.string().optional().describe("Directory to run in. Defaults to your own working directory."),
     worktree: z.boolean().optional().describe("Create a git worktree and branch for this agent."),
+    model: z.string().optional().describe("Model alias: 'opus' for judgment-heavy roles, 'sonnet' for routine work. Omit for the default."),
   },
-}, async ({ name, charter, prompt, cwd, worktree }) => {
+}, async ({ name, charter, prompt, cwd, worktree, model }) => {
   try {
     const parent = process.env.COMB_AGENT || GREG;
-    const { session, dir } = await startAgent({ name, charter, prompt, cwd, worktree, parent });
+    const { session, dir } = await startAgent({ name, charter, prompt, cwd, worktree, parent, model });
     return {
       content: [{
         type: "text" as const,
