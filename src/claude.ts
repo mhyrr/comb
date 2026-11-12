@@ -103,6 +103,16 @@ export async function relayMessage(claude: string, to: string, text: string, run
 }
 
 /**
+ * Stops a background session. A finished turn can leave the process alive
+ * as `done` with a pid; a wake must stop it first, or two sessions share the
+ * agent's name and SendMessage cannot tell them apart.
+ */
+export async function stopSession(claude: string, id: string, run: Run = runProcess): Promise<void> {
+  const res = await run([claude, "stop", id], { cwd: process.cwd(), env: childEnv() });
+  if (res.code !== 0) throw new Error(`Could not stop session ${id}: ${res.stderr.trim() || res.stdout.trim() || `exit ${res.code}`}`);
+}
+
+/**
  * Environment for a detached agent. Subscription OAuth only (D12): an API key
  * in the environment would silently switch billing. Identity arrives through
  * the system prompt, so the SessionStart hook must not emit it again.

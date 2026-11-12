@@ -25,6 +25,11 @@ function fakeClaude(initial: LiveSession[] = []) {
     if (argv[1] === "-p") return { code: 0, stdout: `${relayReply}\n`, stderr: "" };
     if (argv[1] === "identity") return identity ?? { code: 0, stdout: `IDENTITY for ${opts.cwd}\n`, stderr: "" };
     if (argv[1] === "agents") return { code: 0, stdout: JSON.stringify(sessions), stderr: "" };
+    if (argv[1] === "stop") {
+      const at = sessions.findIndex((s) => s.id === argv[2]);
+      if (at >= 0) sessions.splice(at, 1);
+      return { code: 0, stdout: "", stderr: "" };
+    }
     if (argv[1] === "--bg") {
       const name = argv[argv.indexOf("-n") + 1]!;
       const resumeAt = argv.indexOf("--resume");
@@ -331,6 +336,25 @@ describe("comb agents", () => {
     await sendToAgent({ name: "maya", message: "what's waiting?", from: "collegevalue-71", ...base });
     await sendToAgent({ name: "collegevalue-71", message: "two things", from: "maya", ...base });
     expect(claude.calls.filter((c) => c.argv[1] === "-p").at(-1)!.stdin).toContain('to "collegevalue-71"');
+  });
+
+  test("a wake stops a finished session that kept its process, so the name stays unique", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    const first = await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    // Claude Code marks a finished turn done but keeps the process.
+    Object.assign(claude.sessions[0]!, { kind: "background", state: "done", status: "idle", pid: 4242 });
+
+    await sendToAgent({ name: "maya", message: "go", fromPage: true, ...base });
+    expect(claude.calls.find((c) => c.argv[1] === "stop")!.argv).toEqual(["claude", "stop", first.session.id]);
+    expect(claude.sessions.filter((s) => s.name === "maya")).toHaveLength(1);
+  });
+
+  test("a worktree agent records its worktree, so a wake resumes there", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    const { session } = await startAgent({ name: "comb-status-text", charter: "c", cwd: repo, worktree: true, parent: "maya", ...base });
+    expect(session.cwd).toBe(join(repo, ".claude", "worktrees", "comb-status-text"));
   });
 
   test("waking an agent with a message logs who sent it", async () => {

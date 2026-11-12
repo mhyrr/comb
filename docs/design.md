@@ -443,7 +443,7 @@ Claude Code 2.1.319–2.1.322, real background sessions.
 | Message a live session | `SendMessage` by session name delivers, agent to agent included |
 | `--resume` on a live session | Starts a copy. Never use it for delivery |
 | Resume a dead or finished session | `claude --bg --resume <id>` wakes the same session with its history |
-| Status | `claude agents --json` lists live sessions; a finished one stays as `done` until `claude rm` |
+| Status | `claude agents --json` lists live sessions; a finished one stays as `done` until `claude rm`. (2026-11-12) A finished turn can also show `done` with a pid and `status: idle`, process still alive. A `--resume` then makes a second session with the same name, and SendMessage refuses the ambiguous name, so comb runs `claude stop` on it before any wake |
 | Failed at start | Appears only under `--all`, as `failed` |
 | Killed | Leaves the live list within 8 seconds; under `--all` it looks like a clean finish (`done`, no pid). The report file is the only difference |
 | Idle notice | `notify_when_idle` reports a finished turn, a few minutes late. A killed session sends nothing; the subscription expires after 12 hours |

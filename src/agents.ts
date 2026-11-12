@@ -18,6 +18,7 @@ import { ensureCombScaffold, resolveCombHome } from "./paths";
 import {
   findClaudeBin,
   isEnded,
+  stopSession,
   listLiveSessions,
   relayMessage,
   runProcess,
@@ -247,6 +248,11 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
       `A session named "${name}" is already running (${clash.id}, ${clash.cwd}). Message it with SendMessage instead.`,
     );
   }
+  // A finished session can keep its process (state done, with a pid). Stop it,
+  // so the new one is the only session with this name.
+  for (const stale of live.filter((s) => s.name === name && s.pid && isEnded(s))) {
+    await stopSession(claude, stale.id, run);
+  }
 
   const cwd = resolve(expandHome(opts.cwd ?? previous?.cwd ?? process.cwd()));
   if (!existsSync(cwd)) throw new UsageError(`Working directory does not exist: ${cwd}`);
@@ -297,7 +303,9 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
     sessionId: started.sessionId,
     parent,
     project,
-    cwd: started.cwd,
+    // A new worktree session moves into <repo>/.claude/worktrees/<name> after
+    // it is listed; record that, so a wake resumes it there.
+    cwd: !resume && opts.worktree ? join(started.cwd, ".claude", "worktrees", name) : started.cwd,
     worktree: previous?.worktree ?? !!opts.worktree,
     permissionMode,
     model: model ?? null,
