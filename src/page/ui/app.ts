@@ -501,7 +501,7 @@ function renderMayaHead() {
     p.className = "";
     p.textContent = m.activity === "waiting"
       ? `Chief of staff. Idle for ${ago(m.lastActive) === "now" ? "a moment" : ago(m.lastActive)}`
-      : "Chief of staff. Asleep; a message wakes her";
+      : "Chief of staff. Asleep";
   }
 }
 
@@ -899,7 +899,7 @@ function renderEntityHead() {
   about.textContent = "kind" in n ? (n.kind === "interactive" ? "Your session" : "Background session") : n.about ?? "";
   const state = n.activity === "working"
     ? `<span class="state-working">Working${n.now?.kind === "tool" ? `: ${esc(n.now.tool ?? "")}` : ""}</span>`
-    : n.activity === "waiting" ? "<span>Waiting for a message</span>" : "<span>Asleep. A message wakes it</span>";
+    : n.activity === "waiting" ? "<span>Waiting for a message</span>" : "<span>Asleep</span>";
   const parts = [state];
   if (n.project) parts.push(`<span>${esc(n.project)}</span>`);
   if (n.cwd) parts.push(`<span class="mono">${esc(n.cwd.replace(/^\/Users\/[^/]+/, "~"))}</span>`);
