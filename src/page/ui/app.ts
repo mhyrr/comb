@@ -932,7 +932,9 @@ function renderEntityHead() {
   if (n.cwd) parts.push(`<span class="mono">${esc(n.cwd.replace(/^\/Users\/[^/]+/, "~"))}</span>`);
   if (!("kind" in n)) parts.push(`<span>Started by ${esc(who(n.parent))}</span>`);
   if (!("kind" in n) || n.kind === "background") {
-    const cmd = `claude attach ${n.name}`;
+    // hive attach resolves a comb agent's live session by id; Greg's own
+    // background sessions are not comb agents, so they keep claude attach.
+    const cmd = `${"kind" in n ? "claude" : "hive"} attach ${n.name}`;
     parts.push(`<button class="copy" type="button" data-copy="${esc(cmd)}" title="Copy, then paste in a terminal to talk to ${esc(who(n.name))} there">${esc(cmd)}</button>`);
     if (!("kind" in n)) parts.push(`<button class="copy" type="button" data-open="${esc(n.name)}" data-cmd="${esc(cmd)}" title="Open a terminal tab in ${esc(who(n.name))}'s directory running ${esc(cmd)} (also copied)">Open in terminal</button>`);
   }
@@ -1017,8 +1019,8 @@ async function openTerminal(btn: HTMLElement) {
   let msg: string;
   try {
     const res = await fetch(`/api/agent/${encodeURIComponent(name)}/terminal`, { method: "POST" });
-    const body = (await res.json().catch(() => ({}))) as { via?: string; error?: string };
-    msg = res.ok ? `Opened in ${body.via === "rex" ? "Rex" : "Terminal"}` : body.error ?? `Failed (${res.status})`;
+    const body = (await res.json().catch(() => ({}))) as { via?: string; error?: string; note?: string };
+    msg = res.ok ? `Opened in ${body.via === "rex" ? "Rex" : "Terminal"}${body.note ? `. ${body.note[0]!.toUpperCase()}${body.note.slice(1)}` : ""}` : body.error ?? `Failed (${res.status})`;
     if (await copied) msg += ". Command copied";
   } catch (err) {
     msg = err instanceof Error ? err.message : String(err);

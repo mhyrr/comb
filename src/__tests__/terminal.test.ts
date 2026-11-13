@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { Run, RunResult } from "../claude";
 import type { HiveClient } from "../hive";
 import { startPage } from "../page/server";
-import { agentWorkdir, openInTerminal, terminalArgv } from "../terminal";
+import { agentWorkdir, findHiveBin, openInTerminal, terminalArgv } from "../terminal";
 
 type Call = { argv: string[]; cwd: string };
 
@@ -21,6 +21,7 @@ function fakeRun(answer: (argv: string[]) => Partial<RunResult>): { run: Run; ca
 }
 
 const REX = "/Apps/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex";
+const HIVE = "/u/.local/bin/hive";
 const sub = (argv: string[]) => argv.slice(2).join(" "); // drop rex and --autostart=false
 
 /** Rex answers for a server with the given sessions and one app client. */
@@ -66,15 +67,15 @@ describe("agentWorkdir", () => {
 });
 
 describe("openInTerminal", () => {
-  const base = { name: "revrec", dir: "/w/revrec", env: {} };
+  const base = { name: "revrec", dir: "/w/revrec", env: {}, hive: HIVE };
 
-  test("first use makes a 'comb' Rex session with a tab running claude attach, then shows it", async () => {
+  test("first use makes a 'comb' Rex session with a tab running hive attach, then shows it", async () => {
     const { run, calls } = fakeRun(rexAnswers([{ session_id: "session:x", label: "hive" }]));
     const out = await openInTerminal({ ...base, run, rex: REX });
-    expect(out).toEqual({ via: "rex", dir: "/w/revrec", command: "claude attach revrec" });
+    expect(out).toEqual({ via: "rex", dir: "/w/revrec", command: "hive attach revrec" });
     expect(calls.map((c) => c.argv)).toEqual([
       [REX, "--autostart=false", "ls", "--json"],
-      [REX, "--autostart=false", "new", "comb", "-c", "/w/revrec", "--window", "revrec", "--keep-open", "--json", "--", "claude", "attach", "revrec"],
+      [REX, "--autostart=false", "new", "comb", "-c", "/w/revrec", "--window", "revrec", "--keep-open", "--json", "--", HIVE, "attach", "revrec"],
       [REX, "--autostart=false", "client", "ls", "--json"],
       [REX, "--autostart=false", "-C", "client:app", "do", "session.select", "session_id=session:new", "window_id=window:1"],
       ["open", "-a", "/Apps/Rex Beta.app"],
@@ -84,17 +85,25 @@ describe("openInTerminal", () => {
   test("later uses add a tab to the existing 'comb' session", async () => {
     const { run, calls } = fakeRun(rexAnswers([{ session_id: "session:comb", label: "comb" }]));
     await openInTerminal({ ...base, run, rex: REX });
-    expect(calls[1]!.argv).toEqual([REX, "--autostart=false", "window", "new", "-s", "session:comb", "revrec", "-c", "/w/revrec", "--keep-open", "--json", "--", "claude", "attach", "revrec"]);
+    expect(calls[1]!.argv).toEqual([REX, "--autostart=false", "window", "new", "-s", "session:comb", "revrec", "-c", "/w/revrec", "--keep-open", "--json", "--", HIVE, "attach", "revrec"]);
     expect(calls[3]!.argv).toContain("window_id=window:2");
   });
 
-  test("falls back to Terminal.app when Rex fails, passing dir and name as arguments", async () => {
+  test("without hive, the tab runs claude attach and the result says so", async () => {
+    const { run, calls } = fakeRun(rexAnswers([]));
+    const out = await openInTerminal({ ...base, run, rex: REX, hive: null });
+    expect(out.command).toBe("claude attach revrec");
+    expect(out.note).toMatch(/hive is not installed/);
+    expect(calls[1]!.argv.slice(-3)).toEqual(["claude", "attach", "revrec"]);
+  });
+
+  test("falls back to Terminal.app when Rex fails, passing dir and command as arguments", async () => {
     const { run, calls } = fakeRun((argv) => (argv[0] === REX ? { code: 1, stderr: "server not running" } : {}));
     const out = await openInTerminal({ ...base, run, rex: REX });
     expect(out.via).toBe("terminal");
     const last = calls.at(-1)!.argv;
     expect(last[0]).toBe("osascript");
-    expect(last.slice(-2)).toEqual(["/w/revrec", "revrec"]);
+    expect(last.slice(-4)).toEqual(["/w/revrec", HIVE, "attach", "revrec"]);
     expect(last.join(" ")).toContain("quoted form of (item 1 of argv)");
   });
 
@@ -111,9 +120,16 @@ describe("openInTerminal", () => {
 
   test("a hostile directory stays one argument, never script text", () => {
     const dir = `/tmp/x" & do shell script "rm -rf ~" & "`;
-    const argv = terminalArgv(dir, "a");
-    expect(argv.at(-2)).toBe(dir);
-    expect(argv.slice(0, -2).join(" ")).not.toContain("rm -rf");
+    const argv = terminalArgv(dir, ["hive", "attach", "a"]);
+    expect(argv.at(-4)).toBe(dir);
+    expect(argv.slice(0, -4).join(" ")).not.toContain("rm -rf");
+  });
+
+  test("finds hive on PATH, then in ~/.local/bin", () => {
+    const local = (p: string) => p === "/u/.local/bin/hive";
+    expect(findHiveBin(local, "/u", () => "/opt/bin/hive")).toBe("/opt/bin/hive");
+    expect(findHiveBin(local, "/u", () => null)).toBe("/u/.local/bin/hive");
+    expect(findHiveBin(() => false, "/u", () => null)).toBeNull();
   });
 });
 
@@ -134,7 +150,7 @@ describe("POST /api/agent/:name/terminal", () => {
     const fake = fakeRun(rexAnswers([]));
     calls = fake.calls;
     const hive = { close: async () => {} } as unknown as HiveClient;
-    page = startPage({ port, home, claudeBin: "/bin/false", run: fake.run, pollMs: 60_000, hive, rexBin: REX });
+    page = startPage({ port, home, claudeBin: "/bin/false", run: fake.run, pollMs: 60_000, hive, rexBin: REX, hiveBin: HIVE });
   });
   afterEach(async () => {
     await page.stop();
@@ -145,12 +161,12 @@ describe("POST /api/agent/:name/terminal", () => {
   const post = (name: string, headers: Record<string, string> = { origin }) =>
     fetch(`${page.url}/api/agent/${encodeURIComponent(name)}/terminal`, { method: "POST", headers });
 
-  test("opens claude attach for a known agent in its directory", async () => {
+  test("opens hive attach for a known agent in its directory", async () => {
     const res = await post("revrec");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ via: "rex", dir: work, command: "claude attach revrec" });
+    expect(await res.json()).toEqual({ via: "rex", dir: work, command: "hive attach revrec" });
     const made = calls.find((c) => c.argv.includes("new"))!.argv;
-    expect(made.slice(-6)).toEqual(["--keep-open", "--json", "--", "claude", "attach", "revrec"]);
+    expect(made.slice(-6)).toEqual(["--keep-open", "--json", "--", HIVE, "attach", "revrec"]);
     expect(made).toContain(work);
   });
 

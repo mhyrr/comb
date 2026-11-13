@@ -318,15 +318,23 @@ group under Your sessions. The group opens with one click, and opens by
 itself when the selected row is in it. Folding deletes nothing: a message
 still wakes the agent, and a woken agent is back in the tree.
 
-**Open in terminal** (built 2026-11-12). Each agent's header has the
-`claude attach <name>` command (click copies it) and an Open in terminal
-button. The button copies the command and asks the server to open a tab in
+**Open in terminal** (built 2026-11-12; `hive attach` 2026-11-13). Each
+agent's header has the `hive attach <name>` command (click copies it) and an
+Open in terminal button. `hive attach` reads the agent's `session.json`,
+attaches by the live session's short id (`claude attach` matches partial
+names, and the roster can hold several ended rows with the same name), and
+on an ended session prints how to wake the agent instead of resuming it.
+Greg's own background sessions are not comb agents, so their chip keeps
+`claude attach <name>`. The button copies the command and asks the server to open a tab in
 the agent's directory running it: a tab in a Rex session labelled `comb`
 (made on first use, then shown in the Rex app), or a Terminal.app window if
-Rex is missing or fails. `src/terminal.ts` does the work. The server accepts
-only a name with a `session.json`, and runs nothing but `claude attach
-<name>`, built as an argv; Terminal.app gets the directory and name as
-AppleScript arguments under `quoted form of`. Greg's own sessions get no
+Rex is missing or fails. `src/terminal.ts` does the work. The server finds
+`hive` on PATH, then at `~/.local/bin/hive` (launchd's PATH rarely holds
+it). If hive is missing, the tab runs `claude attach <name>` and the
+response says so. The server accepts only a name with a `session.json`, and
+runs nothing but that command, built as an argv; Terminal.app gets the
+directory and the command's words as AppleScript arguments under `quoted
+form of`. Greg's own sessions get no
 button. Taking an agent over (stop, then `--resume`) stays manual.
 
 The directory is session.json's `cwd`, which for a worktree agent is already

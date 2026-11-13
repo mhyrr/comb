@@ -12,7 +12,7 @@
  *   POST /api/queue/:id/answer  { answer: go | no | redirect, note } back to the asking agent
  *   POST /api/tickets/start     { project, id } handed to Maya to route
  *   POST /api/upload            an image body; saved to ~/.comb/inbox/, path returned
- *   POST /api/agent/:name/terminal  a terminal tab in the agent's directory running `claude attach <name>`
+ *   POST /api/agent/:name/terminal  a terminal tab in the agent's directory running `hive attach <name>`
  *   GET  /api/inbox/:file       a saved image
  *
  * Loopback only, and every request must name this server as its Host (and
@@ -28,7 +28,7 @@ import { HiveClient, listHiveProjects, type Ticket } from "../hive";
 import { resolveCombHome } from "../paths";
 import { answerMessage, readItem, recordAnswer } from "../queue";
 import { transcriptPath } from "../transcript";
-import { agentWorkdir, findRexBin, openInTerminal } from "../terminal";
+import { agentWorkdir, findHiveBin, findRexBin, openInTerminal } from "../terminal";
 import { Tail } from "./feed";
 import { buildSnapshot, type Snapshot } from "./state";
 import page from "./ui/index.html";
@@ -43,6 +43,8 @@ export type PageOpts = {
   hive?: HiveClient;
   /** The rex CLI; null means Rex is not installed. Found when omitted. */
   rexBin?: string | null;
+  /** The hive CLI; null means hive is not installed. Found when omitted. */
+  hiveBin?: string | null;
 };
 
 const FEED_MS = 600;
@@ -60,6 +62,7 @@ export function startPage(opts: PageOpts = {}) {
   const pollMs = opts.pollMs ?? 2500;
   const hive = opts.hive ?? new HiveClient();
   const rexBin = opts.rexBin !== undefined ? opts.rexBin : findRexBin();
+  const hiveBin = opts.hiveBin !== undefined ? opts.hiveBin : findHiveBin();
   const enc = new TextEncoder();
 
   // --- live state ----------------------------------------------------------
@@ -305,7 +308,8 @@ export function startPage(opts: PageOpts = {}) {
         return json({ reports });
       }),
       "/api/agent/:name/terminal": {
-        // Only a known agent, only `claude attach <name>`, only in its own
+        // Only a known agent, only `hive attach <name>` (`claude attach` when
+        // hive is missing), only in its own
         // directory. The request names the agent and nothing else.
         POST: (req) => api(req, async () => {
           const name = req.params.name;
@@ -316,7 +320,7 @@ export function startPage(opts: PageOpts = {}) {
           const env: Record<string, string> = {};
           for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
           delete env.ANTHROPIC_API_KEY;
-          return json(await openInTerminal({ name, dir, run, rex: rexBin, env }));
+          return json(await openInTerminal({ name, dir, run, rex: rexBin, hive: hiveBin, env }));
         }),
       },
       "/api/agent/:name/:file": (req) => api(req, async () => {

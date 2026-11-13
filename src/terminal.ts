@@ -1,16 +1,18 @@
 /**
  * Opens a comb agent in a terminal: a new tab in the agent's directory that
- * runs `claude attach <name>` (design §9.1). Rex first, Terminal.app if Rex is
- * not there.
+ * runs `hive attach <name>` (design §9.1), or `claude attach <name>` when hive
+ * is not installed. Rex first, Terminal.app if Rex is not there.
  *
  * The caller passes a validated agent name and its session; this module
  * builds every argv itself. Nothing from a request reaches a shell string:
  * Rex gets the command as separate words, and the Terminal fallback passes
- * the directory and name to AppleScript as arguments, which quotes them.
+ * the directory and command words to AppleScript as arguments, which quotes
+ * them.
  */
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join, sep } from "node:path";
+import { homedir } from "node:os";
+import { basename, join, sep } from "node:path";
 
 import type { AgentSession } from "./agents";
 import type { Run } from "./claude";
@@ -27,11 +29,37 @@ export type Opened = {
   dir: string;
   /** What the tab runs, for the page to show and copy. */
   command: string;
+  /** Set when the tab runs `claude attach` because hive is missing. */
+  note?: string;
 };
 
-/** The command the tab runs. */
-export function attachArgv(name: string): string[] {
-  return ["claude", "attach", name];
+/**
+ * The command the tab runs. `hive attach` resolves the agent's live session
+ * by its short id and will not resume an ended one; `claude attach` matches
+ * partial names, so it is only the fallback when hive is missing.
+ */
+export function attachArgv(name: string, hive: string | null): string[] {
+  return hive ? [hive, "attach", name] : ["claude", "attach", name];
+}
+
+/** The argv as Greg would type it. */
+export function commandText(argv: string[]): string {
+  return [basename(argv[0]!), ...argv.slice(1)].join(" ");
+}
+
+/**
+ * The hive CLI: PATH, then ~/.local/bin/hive. The page server runs under
+ * launchd, whose PATH rarely holds ~/.local/bin, so the second is common.
+ */
+export function findHiveBin(
+  exists: (p: string) => boolean = existsSync,
+  home = homedir(),
+  onPath: () => string | null = () => commandV("hive"),
+): string | null {
+  const found = onPath();
+  if (found) return found;
+  const local = join(home, ".local", "bin", "hive");
+  return exists(local) ? local : null;
 }
 
 /**
@@ -54,15 +82,20 @@ export function agentWorkdir(s: Pick<AgentSession, "name" | "cwd" | "worktree">,
   return candidates.find((p) => exists(p)) ?? null;
 }
 
+/** `command -v`, or null when the name is not on PATH. */
+function commandV(name: string): string | null {
+  try {
+    return execSync(`command -v ${name}`, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null;
+  } catch {
+    return null; // intentional: not on PATH
+  }
+}
+
 /** The rex CLI: COMB_REX_BIN, then PATH, then inside the app bundle. */
 export function findRexBin(exists: (p: string) => boolean = existsSync): string | null {
   if (process.env.COMB_REX_BIN) return process.env.COMB_REX_BIN;
-  try {
-    const onPath = execSync("command -v rex", { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    if (onPath) return onPath;
-  } catch {
-    // intentional: not on PATH; look in the app bundle
-  }
+  const onPath = commandV("rex");
+  if (onPath) return onPath;
   for (const app of REX_APPS) {
     const bin = join(app, REX_BUNDLE_CLI);
     if (exists(bin)) return bin;
@@ -76,6 +109,8 @@ export type OpenOpts = {
   run: Run;
   /** The rex CLI, or null when Rex is not installed. */
   rex: string | null;
+  /** The hive CLI, or null when hive is not installed. */
+  hive: string | null;
   env: Record<string, string>;
 };
 
@@ -84,19 +119,20 @@ export type OpenOpts = {
  * Throws only when both fail, with both reasons.
  */
 export async function openInTerminal(o: OpenOpts): Promise<Opened> {
-  const command = attachArgv(o.name).join(" ");
+  const argv = attachArgv(o.name, o.hive);
+  const said = { dir: o.dir, command: commandText(argv), ...(o.hive ? {} : { note: "hive is not installed, so the tab runs claude attach" }) };
   let rexProblem = "Rex is not installed";
   if (o.rex) {
     try {
-      await openInRex(o.rex, o);
-      return { via: "rex", dir: o.dir, command };
+      await openInRex(o.rex, argv, o);
+      return { via: "rex", ...said };
     } catch (err) {
       rexProblem = err instanceof Error ? err.message : String(err);
     }
   }
   try {
-    await openInTerminalApp(o);
-    return { via: "terminal", dir: o.dir, command };
+    await openInTerminalApp(argv, o);
+    return { via: "terminal", ...said };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`Could not open a terminal. Rex: ${rexProblem}. Terminal: ${msg}.`);
@@ -116,8 +152,8 @@ async function rexJson(o: OpenOpts, rex: string, args: string[]): Promise<any> {
  * One tab per click, in a Rex session labelled "comb" (made on first use),
  * then shown in the Rex app.
  */
-async function openInRex(rex: string, o: OpenOpts): Promise<void> {
-  const cmd = ["--keep-open", "--json", "--", ...attachArgv(o.name)];
+async function openInRex(rex: string, argv: string[], o: OpenOpts): Promise<void> {
+  const cmd = ["--keep-open", "--json", "--", ...argv];
   const ls = await rexJson(o, rex, ["ls", "--json"]);
   const existing = (ls?.sessions ?? []).find((s: { label?: string }) => s.label === REX_SESSION_LABEL);
   let sessionId: string;
@@ -155,12 +191,15 @@ function rexAppFor(rex: string): string {
 }
 
 /**
- * AppleScript gets the directory and name as argv and quotes them with
- * `quoted form of`, so neither is ever parsed as shell or AppleScript.
+ * AppleScript gets the directory and the command's words as argv and quotes
+ * each with `quoted form of`, so none is ever parsed as shell or AppleScript.
  */
 export const TERMINAL_SCRIPT = [
   "on run argv",
-  'set cmd to "cd " & quoted form of (item 1 of argv) & " && claude attach " & quoted form of (item 2 of argv)',
+  'set cmd to "cd " & quoted form of (item 1 of argv) & " &&"',
+  "repeat with w in (items 2 thru -1 of argv)",
+  'set cmd to cmd & " " & quoted form of (w as text)',
+  "end repeat",
   'tell application "Terminal"',
   "activate",
   "do script cmd",
@@ -168,11 +207,11 @@ export const TERMINAL_SCRIPT = [
   "end run",
 ];
 
-export function terminalArgv(dir: string, name: string): string[] {
-  return ["osascript", ...TERMINAL_SCRIPT.flatMap((l) => ["-e", l]), dir, name];
+export function terminalArgv(dir: string, argv: string[]): string[] {
+  return ["osascript", ...TERMINAL_SCRIPT.flatMap((l) => ["-e", l]), dir, ...argv];
 }
 
-async function openInTerminalApp(o: OpenOpts): Promise<void> {
-  const res = await o.run(terminalArgv(o.dir, o.name), { cwd: o.dir, env: o.env });
+async function openInTerminalApp(argv: string[], o: OpenOpts): Promise<void> {
+  const res = await o.run(terminalArgv(o.dir, argv), { cwd: o.dir, env: o.env });
   if (res.code !== 0) throw new Error(`osascript failed (exit ${res.code}): ${(res.stderr || res.stdout).trim()}`);
 }
