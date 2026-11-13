@@ -5,7 +5,8 @@ comb is the work layer on top of hive. Read `docs/design.md` first.
 ## Rules
 
 - **Never write `~/.hive`.** comb reads hive only through `hive identity emit`,
-  the project registry files, and the `hive` MCP server. All comb state lives
+  the project registry files, the `hive` MCP server, and hive's nightly
+  outputs (`next.json`, `briefings/`, ticket front matter; design §9.3). All comb state lives
   in `~/.comb` (`COMB_HOME` overrides it). `src/hive.ts` is the only module
   that touches hive.
 - **Never change global Claude config.** comb-mcp reaches agents through
@@ -23,6 +24,8 @@ comb is the work layer on top of hive. Read `docs/design.md` first.
 - `src/mcp-server.ts`: comb-mcp (`agent_list`, `agent_send`, `agent_start`,
   `queue_add`).
 - `src/queue.ts`: the queue (`~/.comb/queue/`) and precedents.
+- `src/nightly.ts`: files hive's nightly picks and asks into the queue
+  (`comb nightly`, and hourly from the page server).
 - `src/agents.ts`: workspaces, the start path, the core contract.
 - `src/claude.ts`: the Claude Code adapter (`--bg`, `claude agents --json`).
 - `src/hive.ts`: the hive interface, including the read-only hive MCP client

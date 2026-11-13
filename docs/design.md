@@ -371,6 +371,48 @@ that fills with honey while it works; that is the page's one ambient motion.
   with Start), Finished work (reports with their first paragraph).
 - Not built yet: Maya ranking the queue, and `precedents_search`.
 
+### 9.3 hive's nightly in the queue (built 2026-11-13)
+
+hive writes two things each night that wait on Greg: the Act watches' picks
+in `~/.hive/next.json` (one ticket per project, with a rationale) and the
+briefing's "What needs your attention" list. Before this they sat in a file
+and a briefing. Now comb files them as queue items from Maya (D23).
+
+- **What comb reads, read-only:** `next.json` (`selections` with
+  `disposition: recommended`), today's `~/.hive/briefings/<date>.md`, and
+  each picked ticket's front matter in
+  `~/.hive/projects/<p>/tickets/<id>.md`. The readers are in `src/hive.ts`.
+  hive does not know comb reads them.
+- **A pick becomes a proposal.** Title `Start <project> <ticket>: <ticket
+  title>`; action `Maya starts task agent <project>-<ticket> on <project>
+  <ticket>.`; the case is hive's rationale. On Go, the answer reaches Maya,
+  who starts the task agent (D21).
+- **An attention item becomes a decision.** The title is the item's text;
+  the action is that Maya acts on Greg's answer. Go means carry it out as
+  written; Redirect carries his answer. The project comes from the bold lead
+  (`**revrec:**`), the ticket from the first `TK-n` in the text.
+- **Skips, each reported with its reason:** a pick older than 7 days; a pick
+  whose ticket is closed or done, or that hive has no file for; anything
+  with an open queue item on the same project and ticket (ticket field, or
+  the id in the title) or the same title; an ask about a ticket that a
+  current pick already covers.
+- **Never twice.** `~/.comb/nightly/filed.json` records every filed item, by
+  project+ticket+`selectedAt` for a pick and date+text for an ask, so an
+  answered item is not refiled. hive re-picks a ticket with a new
+  `selectedAt` (twice on 2026-11-13 alone), and briefings repeat asks, so the
+  same project+ticket, or the same ask text, is also skipped for 7 days
+  after it was filed; after that, a ticket hive still picks is asked again.
+  Records older than 30 days are pruned.
+- **Caps.** At most one pick per project a night, and 10 items a night
+  (local date). Asks are filed first because they do not come back: an
+  excess ask is dropped (tomorrow's briefing carries what still matters),
+  while an excess pick is filed the next night if hive still picks it and
+  it is under 7 days old.
+- **When it runs.** The page server runs it at start and every hour; its log
+  is `~/.comb/logs/page.log`. `comb nightly` runs it by hand, and
+  `comb nightly --dry-run` prints what it would file and why it skips the
+  rest, writing nothing.
+
 ## 10. Decisions
 
 - **D1. Maya is a background Claude Code session on the subscription.**
@@ -449,6 +491,20 @@ that fills with honey while it works; that is the page's one ambient motion.
   a pure function on the snapshot (`foldedAgents`, `sessionFolds`), so the
   page only renders it. A report is the signal for "finished" because an
   agent with no report has not handed anything back yet.
+- **D23. hive's nightly picks and asks are filed into the queue by comb, on
+  the page server's hourly timer** (2026-11-13, §9.3). Greg: "Put hive's
+  nightly Act picks and briefing asks in the comb queue." comb reads hive's
+  files and hive never learns comb exists, which keeps D10's one-way
+  boundary. This is the one place comb parses prose (the briefing's list),
+  and it does so only to file a decision Greg answers; D19 still holds for
+  agents. The trigger is a timer in the page server, not a launchd job after
+  hive's: hive's picks land at varied hours (Act watches ran at 00:25 and
+  01:30 on 2026-11-13) and its nightly retries at 08:30 and 12:30 when the
+  laptop slept, so a fixed run time would miss some nights. The page server
+  is already a KeepAlive login service; an hourly, idempotent check catches
+  whatever hive wrote within the hour and needs no second plist. The cost:
+  no page server, no filing, which is the same condition under which Greg
+  could not see the queue anyway.
 
 ## 11. Open questions
 
