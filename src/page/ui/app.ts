@@ -222,11 +222,33 @@ function toolItem(t: Tool): string {
   return `<li class="${t.status}"><span class="g">${g}</span><span class="n">${esc(t.name)}</span><span class="d">${esc(t.detail)}</span></li>`;
 }
 
+/**
+ * Renders, then follows new content if the reader was at the bottom. A pinned
+ * element (see pinToBottom) lands at the bottom whatever its scroll position.
+ * A hidden element has no height, so its scroll position means nothing: it
+ * stays pinned until it shows.
+ */
 function stickToBottom(el: HTMLElement, render: () => void) {
-  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  const atBottom = el.dataset.pin === "1" || el.scrollHeight - el.scrollTop - el.clientHeight < 60;
   const keep = el.scrollTop;
   render();
+  if (el.clientHeight === 0) {
+    if (atBottom) el.dataset.pin = "1";
+    return;
+  }
+  delete el.dataset.pin;
   el.scrollTop = atBottom ? el.scrollHeight : keep;
+}
+
+/** Lands a feed at the bottom on its next render, or now if it is already shown. */
+function pinToBottom(el: HTMLElement | null) {
+  if (!el) return;
+  if (el.clientHeight === 0) {
+    el.dataset.pin = "1";
+    return;
+  }
+  delete el.dataset.pin;
+  el.scrollTop = el.scrollHeight;
 }
 
 // ---------------------------------------------------------------- composer
@@ -573,6 +595,9 @@ function layoutMaya() {
     t.setAttribute("aria-pressed", String(!mayaHidden));
     t.textContent = mayaHidden ? "Show Maya" : "Hide Maya";
   }
+  // The chat may have rendered while hidden. Once it shows, land at the bottom.
+  const chat = document.getElementById("chat");
+  if (chat?.dataset.pin === "1") pinToBottom(chat);
 }
 let mayaHidden = (() => { try { return localStorage.getItem("comb.mayaHidden") === "1"; } catch { return false; } })();
 document.getElementById("maya-toggle")?.addEventListener("click", () => {
@@ -876,6 +901,8 @@ function renderEntity(same: boolean) {
       body.innerHTML = `<div class="empty">Reading the transcript…</div>`;
       stageFeed = new Feed(stageKey, () => renderTimeline());
     } else {
+      // Coming from another tab: the body holds that tab's scroll position.
+      body.dataset.pin = "1";
       renderTimeline();
     }
   } else {
