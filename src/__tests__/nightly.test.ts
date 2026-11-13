@@ -109,6 +109,28 @@ test("a second run files nothing: each pick and ask is recorded once", async () 
   expect(after.filed).toEqual([]);
 });
 
+test("a re-pick of the same ticket, or a repeated ask, does not come back for a week", async () => {
+  await ticket("arete", "TK-042");
+  await picks([{ projectId: "arete", ticketId: "TK-042", selectedAt: daysAgo(0.3) }]);
+  await briefing(TODAY, ["**Arete:** decide the numbering rule."]);
+  const first = await runNightly({ home, hiveHome, now: NOW });
+  for (const i of await listItems(home, 0, NOW.getTime())) await recordAnswer(i.id, "no", "Not now.", home);
+
+  // hive re-selects the same ticket with a new selectedAt; tomorrow's briefing repeats the ask.
+  const tomorrow = new Date(NOW.getTime() + 24 * 3600_000);
+  await picks([{ projectId: "arete", ticketId: "TK-042", selectedAt: new Date(tomorrow.getTime() - 3600_000).toISOString() }]);
+  await briefing(localDate(tomorrow), ["**Arete:** decide the numbering rule."]);
+  const again = await runNightly({ home, hiveHome, now: tomorrow });
+  expect(first.filed.length).toBe(2);
+  expect(again.filed).toEqual([]);
+  expect(again.skipped.map((s) => s.reason)).toEqual([expect.stringMatching(/^already filed/), expect.stringMatching(/^already filed/)]);
+
+  // After a week, a ticket hive still picks is asked again.
+  const later = new Date(NOW.getTime() + 8 * 24 * 3600_000);
+  await picks([{ projectId: "arete", ticketId: "TK-042", selectedAt: new Date(later.getTime() - 3600_000).toISOString() }]);
+  expect((await runNightly({ home, hiveHome, now: later })).filed.map((f) => f.label)).toEqual(["arete TK-042"]);
+});
+
 test("an open queue item on the same ticket blocks a pick; the same id in another project does not", async () => {
   await ticket("arete", "TK-042");
   await ticket("dobby", "TK-042");

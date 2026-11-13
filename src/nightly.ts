@@ -154,6 +154,13 @@ export async function runNightly(opts: NightlyOpts = {}): Promise<NightlyReport>
   const open = (await listItems(home, 0, now.getTime())).filter((i) => i.status === "open");
   const report: NightlyReport = { date: today, dryRun, filed: [], deferred: [], skipped: [], briefing: null };
   const filedTonight = Object.values(state.filed).filter((r) => r.date === today);
+  /**
+   * The same ticket or ask text filed in the last week. hive re-picks a ticket
+   * with a new selectedAt (twice on 2026-11-13), and a briefing can repeat an
+   * ask; neither should come back to Greg once he has seen it.
+   */
+  const recent = (match: (key: string) => boolean): Filed | undefined =>
+    Object.entries(state.filed).find(([k, r]) => match(k) && now.getTime() - Date.parse(r.at) < STALE_PICK_DAYS * DAY_MS)?.[1];
 
   // Picks: the newest per project, then the skip rules in order.
   const picks: Planned[] = [];
@@ -170,8 +177,9 @@ export async function runNightly(opts: NightlyOpts = {}): Promise<NightlyReport>
     const days = Math.floor((now.getTime() - Date.parse(p.selectedAt)) / DAY_MS);
     const ticket = readTicketFile(p.project, p.ticket, hiveHome);
     const dup = ticket ? openDuplicate(open, p.project, p.ticket, "") : null;
+    const earlier = state.filed[key] ?? recent((k) => k.startsWith(`pick:${p.project}:${p.ticket}:`));
     let reason: string | null = null;
-    if (state.filed[key]) reason = `already filed ${state.filed[key]!.date} (${state.filed[key]!.id})`;
+    if (earlier) reason = `already filed ${earlier.date} (${earlier.id})`;
     else if (days > STALE_PICK_DAYS) reason = `stale: picked ${p.selectedAt.slice(0, 10)}, ${days} days ago`;
     else if (!ticket) reason = `hive has no ticket ${p.project}/${p.ticket}`;
     else if (CLOSED.has(ticket.status)) reason = `ticket is ${ticket.status}`;
@@ -194,8 +202,9 @@ export async function runNightly(opts: NightlyOpts = {}): Promise<NightlyReport>
     const title = askTitle(text);
     const covered = ticket && current.find((p) => p.ticket === ticket && (!project || p.project === project));
     const dup = openDuplicate(open, project, ticket, title);
+    const earlier = state.filed[key] ?? recent((k) => k.startsWith("ask:") && k.slice(15) === normalize(text));
     let reason: string | null = null;
-    if (state.filed[key]) reason = `already filed (${state.filed[key]!.id})`;
+    if (earlier) reason = `already filed ${earlier.date} (${earlier.id})`;
     else if (covered) reason = `covered by hive's pick ${covered.label}`;
     else if (dup) reason = `already open in the queue: ${dup.id}`;
     if (reason) {
