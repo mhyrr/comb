@@ -913,9 +913,14 @@ function renderEntityHead() {
   meta.innerHTML = parts.join("");
 }
 
+/** The open tab. Async renders check it before they write into #ent-body. */
+const openTab = (): Tab | null =>
+  route.view === "agent" ? route.tab : route.view === "session" ? "activity" : null;
+
 function renderTimeline() {
   const body = document.getElementById("ent-body");
-  if (!body || !stageFeed) return;
+  // The feed outlives a tab switch, so a late event must not overwrite Charter, Log or Reports.
+  if (!body || !stageFeed || openTab() !== "activity") return;
   const feed = stageFeed;
   stickToBottom(body, () => {
     const html: string[] = [];
@@ -1024,9 +1029,9 @@ async function renderDoc(name: string, tab: Tab) {
         ? reports.map((r) => `<article class="report"><div class="report-file">${esc(r.file)}</div><div class="prose">${md(r.text)}</div></article>`).join("")
         : `<p class="empty" style="padding:0">No finished work yet. Reports land here when ${esc(name)} finishes something.</p>`;
     }
-    if (route.view === "agent" && route.tab === tab) body.innerHTML = `<div class="doc">${html}</div>`;
+    if (openTab() === tab) body.innerHTML = `<div class="doc">${html}</div>`;
   } catch (err) {
-    body.innerHTML = `<div class="doc"><p class="problem">${esc(String((err as Error).message))}</p></div>`;
+    if (openTab() === tab) body.innerHTML = `<div class="doc"><p class="problem">${esc(String((err as Error).message))}</p></div>`;
   }
 }
 
