@@ -26,6 +26,7 @@ import { agentDir, GREG, readAgentSession, sendToAgent, validateAgentName } from
 import { findClaudeBin, listLiveSessions, runProcess, type LiveSession, type Run } from "../claude";
 import { HiveClient, listHiveProjects, type Ticket } from "../hive";
 import { resolveCombHome } from "../paths";
+import { formatNightly, runNightly } from "../nightly";
 import { answerMessage, readItem, recordAnswer } from "../queue";
 import { transcriptPath } from "../transcript";
 import { agentWorkdir, findHiveBin, findRexBin, openInTerminal } from "../terminal";
@@ -45,6 +46,8 @@ export type PageOpts = {
   rexBin?: string | null;
   /** The hive CLI; null means hive is not installed. Found when omitted. */
   hiveBin?: string | null;
+  /** File hive's nightly picks and asks into the queue on start and at this interval. Off when unset. */
+  nightlyMs?: number;
 };
 
 const FEED_MS = 600;
@@ -92,6 +95,26 @@ export function startPage(opts: PageOpts = {}) {
     polling = true;
     try { await refresh(); } catch (err) { console.error("comb page: refresh failed:", err); } finally { polling = false; }
   }, pollMs);
+
+  // --- hive's nightly, into the queue (§9.3) ---------------------------------
+  let nightlyTimer: ReturnType<typeof setInterval> | null = null;
+  if (opts.nightlyMs) {
+    let filing = false;
+    const fileNightly = async () => {
+      if (filing) return;
+      filing = true;
+      try {
+        const r = await runNightly({ home });
+        if (r.filed.length || r.deferred.length) console.log(`${new Date().toISOString()} ${formatNightly(r)}`);
+      } catch (err) {
+        console.error("comb page: hive nightly filing failed:", err);
+      } finally {
+        filing = false;
+      }
+    };
+    void fileNightly();
+    nightlyTimer = setInterval(fileNightly, opts.nightlyMs);
+  }
 
   function eventStream(onStart: (send: (event: string, data: unknown) => void) => () => void): Response {
     let stop = () => {};
@@ -352,6 +375,7 @@ export function startPage(opts: PageOpts = {}) {
     url: `http://127.0.0.1:${server.port}`,
     async stop() {
       clearInterval(timer);
+      if (nightlyTimer) clearInterval(nightlyTimer);
       server.stop(true);
       await hive.close();
     },

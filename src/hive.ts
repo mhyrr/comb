@@ -256,3 +256,78 @@ export function parseMemory(text: string): MemoryEntry[] {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// hive's nightly outputs, read for comb's queue (design §9.3). Read-only files:
+//   ~/.hive/next.json                      the Act watches' picks, one per project
+//   ~/.hive/briefings/<date>.md            the briefing and its attention list
+//   ~/.hive/projects/<p>/tickets/<id>.md   a ticket's status and title
+
+export type ActPick = { project: string; ticket: string; rationale: string; selectedAt: string; source: string };
+
+/** The recommended Act picks in next.json. A missing or half-written file reads as none. */
+export function readActPicks(hiveHome: string = resolveHiveHome()): ActPick[] {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(join(hiveHome, "next.json"), "utf-8"));
+  } catch {
+    return []; // intentional: no file yet, or hive is mid-write; the next run reads it
+  }
+  const selections = (raw as { selections?: unknown } | null)?.selections;
+  if (!Array.isArray(selections)) return [];
+  const out: ActPick[] = [];
+  for (const s of selections as Record<string, unknown>[]) {
+    if (s?.disposition !== "recommended") continue;
+    const { projectId, ticketId, rationale, selectedAt, sourceWatch } = s;
+    if (typeof projectId !== "string" || typeof ticketId !== "string" || typeof selectedAt !== "string") continue;
+    if (Number.isNaN(Date.parse(selectedAt))) continue;
+    out.push({
+      project: projectId,
+      ticket: ticketId,
+      rationale: typeof rationale === "string" ? rationale : "",
+      selectedAt,
+      source: typeof sourceWatch === "string" ? sourceWatch : `${projectId}/act`,
+    });
+  }
+  return out;
+}
+
+/** The briefing for `date` (YYYY-MM-DD), or null if hive has not written it. */
+export function readBriefing(date: string, hiveHome: string = resolveHiveHome()): string | null {
+  try {
+    return readFileSync(join(hiveHome, "briefings", `${date}.md`), "utf-8");
+  } catch {
+    return null; // intentional: no briefing for that day
+  }
+}
+
+/** The numbered items under "## What needs your attention", one string each. */
+export function parseAttention(briefing: string): string[] {
+  const lines = briefing.split("\n");
+  const start = lines.findIndex((l) => /^##\s+What needs your attention\s*$/i.test(l));
+  if (start < 0) return [];
+  const items: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^#{1,2}\s/.test(line)) break;
+    const n = line.match(/^\d+\.\s+(.*)$/);
+    if (n) items.push(n[1]!.trim());
+    else if (line.trim() && /^\s/.test(line) && items.length) items[items.length - 1] += " " + line.trim();
+  }
+  return items.filter(Boolean);
+}
+
+export type TicketFile = { status: string; title: string; priority: string | null; type: string | null };
+
+/** A ticket's front matter from hive's ticket file, or null if hive has no such ticket. */
+export function readTicketFile(project: string, id: string, hiveHome: string = resolveHiveHome()): TicketFile | null {
+  if (!/^[\w.-]+$/.test(project) || project.startsWith(".") || !/^[\w-]+$/.test(id)) return null;
+  let raw: string;
+  try {
+    raw = readFileSync(join(hiveHome, "projects", project, "tickets", `${id}.md`), "utf-8");
+  } catch {
+    return null; // intentional: no such ticket
+  }
+  const head = raw.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
+  const field = (k: string) => head.match(new RegExp(`^${k}:\\s*(.*)$`, "m"))?.[1]?.trim() || null;
+  return { status: field("status") ?? "open", title: field("title") ?? "", priority: field("priority"), type: field("type") };
+}

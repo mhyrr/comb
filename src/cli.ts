@@ -8,6 +8,7 @@ import { readFile } from "node:fs/promises";
 import { formatAgentList, listAgents, sendToAgent, startAgent } from "./agents";
 import { UsageError } from "./errors";
 import { combInit } from "./init";
+import { formatNightly, NIGHTLY_EVERY_MS, runNightly } from "./nightly";
 import { startPage } from "./page/server";
 import { installPageService, PAGE_PORT } from "./page/service";
 import { resolveCombHome } from "./paths";
@@ -23,7 +24,10 @@ Usage:
   comb send <name> "<message>"   Message an agent; an asleep one wakes with it
   comb page                      Open comb's page (http://127.0.0.1:4747). It runs as a
                                  login service; if it is not up, this serves it until stopped
-  comb page --serve [--port N]   Serve only (what the service runs)
+  comb page --serve [--port N]   Serve only (what the service runs). It also files hive's
+                                 nightly picks and asks into the queue, hourly
+  comb nightly [--dry-run]       File hive's new Act picks and briefing asks into the queue
+                                 now; --dry-run prints what it would file and why it skips
 
 Agents are Claude Code background sessions. Watch one with: claude attach <id>
 From a Claude session, use the comb MCP tools: agent_list, agent_send, agent_start.`;
@@ -50,6 +54,13 @@ async function main(args: string[]): Promise<void> {
     console.log(woke ? `${name} was asleep and is waking with the message.` : `Delivered to ${name}.`);
     return;
   }
+  if (cmd === "nightly") {
+    const dryRun = rest.includes("--dry-run");
+    const unknown = rest.find((a) => a !== "--dry-run");
+    if (unknown) throw new UsageError(`Unknown flag: ${unknown}\n\n${usage}`);
+    console.log(formatNightly(await runNightly({ dryRun })));
+    return;
+  }
   if (cmd === "page") {
     let port = PAGE_PORT;
     let serveOnly = false;
@@ -66,7 +77,7 @@ async function main(args: string[]): Promise<void> {
       open();
       return;
     }
-    startPage({ port });
+    startPage({ port, nightlyMs: NIGHTLY_EVERY_MS });
     console.log(`${new Date().toISOString()} comb's page is serving at ${url}`);
     if (!serveOnly) open();
     await new Promise(() => {}); // serve until stopped
