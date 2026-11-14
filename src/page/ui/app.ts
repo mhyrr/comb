@@ -626,9 +626,35 @@ function renderStage(prev?: Route) {
   renderEntity(!!sameEntity);
 }
 
+/** Whether the Tickets or Memory view on screen was drawn with hive on; null before the first snapshot. */
+let hiveDrawn: boolean | null = null;
+
 function refreshStageFromSnapshot() {
   if (route.view === "now") renderNow();
   else if (route.view === "agent" || route.view === "session") renderEntityHead();
+  else if ((route.view === "tickets" || route.view === "memory") && snap && hiveDrawn !== snap.hive) renderStage();
+}
+
+const HIVE_URL = "https://github.com/mhyrr/hive";
+
+/** Tickets and Memory come from hive (D24). Without it, say so and where to get it. */
+function noHiveView(title: string): string {
+  return `<div class="stage-scroll"><div class="stage-inner">
+    <header class="view-head">
+      <h1 class="view-title">${title}</h1>
+      <p class="view-sub">Install hive for tickets and memory.</p>
+    </header>
+    <div class="prose no-hive">
+      <p>comb runs on plain Claude Code. Agents take their work from their charters and the queue. <a href="${HIVE_URL}" target="_blank" rel="noreferrer">hive</a> adds the rest:</p>
+      <ul>
+        <li><b>Tickets</b> for each project, here and in every agent's tools, with <b>Start</b> to hand one to Maya.</li>
+        <li><b>Memory</b>: what each project has learned, shared by every session.</li>
+        <li><b>Identity</b>: your voice and standards in every agent.</li>
+        <li><b>Nightly picks</b>: hive's next ticket per project and its briefing's asks, filed in the queue.</li>
+      </ul>
+      <p>Install hive, then run <code>comb init</code> again. comb finds it on its own.</p>
+    </div>
+  </div></div>`;
 }
 
 // --- Now: the dashboard
@@ -653,7 +679,7 @@ function setSection(id: string, html: string) {
 
 function renderNow() {
   if (!snap) {
-    stage.innerHTML = `<div class="empty">Reading the hive…</div>`;
+    stage.innerHTML = `<div class="empty">Reading…</div>`;
     return;
   }
   if (!document.getElementById("dash")) {
@@ -748,6 +774,7 @@ function notesHtml(nodes: (AgentNode | SessionNode)[]): string {
 }
 
 async function fillTickets() {
+  if (!snap?.hive) { setSection("now-tickets", ""); return; }
   if (!ticketData || Date.now() - ticketsAt > 60_000) {
     ticketsAt = Date.now();
     try {
@@ -937,9 +964,10 @@ function renderEntityHead() {
   if (n.cwd) parts.push(`<span class="mono">${esc(n.cwd.replace(/^\/Users\/[^/]+/, "~"))}</span>`);
   if (!("kind" in n)) parts.push(`<span>Started by ${esc(who(n.parent))}</span>`);
   if (!("kind" in n) || n.kind === "background") {
-    // hive attach resolves a comb agent's live session by id; Greg's own
-    // background sessions are not comb agents, so they keep claude attach.
-    const cmd = `${"kind" in n ? "claude" : "hive"} attach ${n.name}`;
+    // hive attach resolves a comb agent's live session by id; the user's own
+    // background sessions are not comb agents, so they keep claude attach, and
+    // so does everything when hive is off.
+    const cmd = `${"kind" in n || !snap?.hive ? "claude" : "hive"} attach ${n.name}`;
     parts.push(`<button class="copy" type="button" data-copy="${esc(cmd)}" title="Copy, then paste in a terminal to talk to ${esc(who(n.name))} there">${esc(cmd)}</button>`);
     if (!("kind" in n)) parts.push(`<button class="copy" type="button" data-open="${esc(n.name)}" data-cmd="${esc(cmd)}" title="Open a terminal tab in ${esc(who(n.name))}'s directory running ${esc(cmd)} (also copied)">Open in terminal</button>`);
   }
@@ -1125,6 +1153,9 @@ function ticketGroup(title: string, list: Ticket[], showProject: boolean, limit:
 const groupsOpen = new Set<string>();
 
 async function renderTickets(same: boolean, fresh = false) {
+  if (!snap) { stage.innerHTML = `<div class="empty">Reading…</div>`; return; }
+  hiveDrawn = snap.hive;
+  if (!snap.hive) { stage.innerHTML = noHiveView("Tickets"); return; }
   if (!same || fresh || !ticketData) {
     if (!ticketData || fresh) stage.innerHTML = `<div class="empty">Reading tickets from hive…</div>`;
     try {
@@ -1266,6 +1297,9 @@ function highlight(html: string, q: string): string {
 }
 
 async function renderMemory(same: boolean) {
+  if (!snap) { stage.innerHTML = `<div class="empty">Reading…</div>`; return; }
+  hiveDrawn = snap.hive;
+  if (!snap.hive) { stage.innerHTML = noHiveView("Memory"); return; }
   const list = await projects().catch(() => [] as string[]);
   if (route.view !== "memory") return;
   let project = route.project;

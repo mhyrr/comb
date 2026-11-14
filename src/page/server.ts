@@ -22,10 +22,10 @@ import { existsSync, readdirSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { readCombConfig } from "../config";
+import { human, readCombConfig, type Human } from "../config";
 import { agentDir, GREG, readAgentSession, sendToAgent, validateAgentName } from "../agents";
 import { findClaudeBin, listLiveSessions, runProcess, type LiveSession, type Run } from "../claude";
-import { HiveClient, listHiveProjects, type Ticket } from "../hive";
+import { detectHive, HiveClient, listHiveProjects, type HiveSetup, type Ticket } from "../hive";
 import { resolveCombHome } from "../paths";
 import { formatNightly, runNightly } from "../nightly";
 import { answerMessage, readItem, recordAnswer } from "../queue";
@@ -43,11 +43,13 @@ export type PageOpts = {
   /** How often to poll `claude agents --json` while a page is open. */
   pollMs?: number;
   hive?: HiveClient;
+  /** Whether hive is on (D24). Detected once, at start, when omitted. */
+  hiveSetup?: HiveSetup;
   /** The rex CLI; null means Rex is not installed. Found when omitted. */
   rexBin?: string | null;
   /** The hive CLI; null means hive is not installed. Found when omitted. */
   hiveBin?: string | null;
-  /** File hive's nightly picks and asks into the queue on start and at this interval. Off when unset. */
+  /** File hive's nightly picks and asks into the queue on start and at this interval. Off when unset, and without hive. */
   nightlyMs?: number;
 };
 
@@ -64,12 +66,17 @@ export function startPage(opts: PageOpts = {}) {
   const claude = opts.claudeBin ?? findClaudeBin();
   const run = opts.run ?? runProcess;
   const pollMs = opts.pollMs ?? 2500;
+  // Snapshots read config.json quietly every poll; say once, at start, if it is broken.
+  const config = readCombConfig(home, (msg) => console.error(`comb page: ${msg}`));
+  // hive is decided once, here: tickets, memory, nightly and `hive attach` follow it.
+  const setup = opts.hiveSetup ?? detectHive({ mode: config.hive });
+  const hiveOn = setup.enabled;
+  if (!opts.hiveSetup) console.log(`comb page: hive ${hiveOn ? "on" : "off"} (${setup.why})`);
   const hive = opts.hive ?? new HiveClient();
   const rexBin = opts.rexBin !== undefined ? opts.rexBin : findRexBin();
-  const hiveBin = opts.hiveBin !== undefined ? opts.hiveBin : findHiveBin();
+  const hiveBin = !hiveOn ? null : opts.hiveBin !== undefined ? opts.hiveBin : findHiveBin();
   const enc = new TextEncoder();
-  // Snapshots read config.json quietly every poll; say once, at start, if it is broken.
-  readCombConfig(home, (msg) => console.error(`comb page: ${msg}`));
+  const noHive = () => json({ error: "Tickets and memory come from hive, which is not installed.", hive: false }, 404);
 
   // --- live state ----------------------------------------------------------
   let live: LiveSession[] = [];
@@ -84,7 +91,7 @@ export function startPage(opts: PageOpts = {}) {
     } catch (err) {
       liveError = err instanceof Error ? err.message : String(err);
     }
-    const next = await buildSnapshot({ home, live, liveError });
+    const next = await buildSnapshot({ home, live, liveError, hive: hiveOn, hiveHome: setup.home });
     const json = JSON.stringify({ ...next, at: undefined });
     if (json === snapshotJson) return;
     snapshot = next;
@@ -101,13 +108,13 @@ export function startPage(opts: PageOpts = {}) {
 
   // --- hive's nightly, into the queue (§9.3) ---------------------------------
   let nightlyTimer: ReturnType<typeof setInterval> | null = null;
-  if (opts.nightlyMs) {
+  if (opts.nightlyMs && hiveOn) {
     let filing = false;
     const fileNightly = async () => {
       if (filing) return;
       filing = true;
       try {
-        const r = await runNightly({ home });
+        const r = await runNightly({ home, hiveHome: setup.home });
         if (r.filed.length || r.deferred.length) console.log(`${new Date().toISOString()} ${formatNightly(r)}`);
       } catch (err) {
         console.error("comb page: hive nightly filing failed:", err);
@@ -201,7 +208,7 @@ export function startPage(opts: PageOpts = {}) {
   let ticketCache: { at: number; tickets: Ticket[]; failed: string[] } | null = null;
   async function allTickets(force: boolean) {
     if (!force && ticketCache && Date.now() - ticketCache.at < TICKET_TTL_MS) return ticketCache;
-    const projects = listHiveProjects();
+    const projects = listHiveProjects(setup.home);
     const failed: string[] = [];
     const lists = await Promise.all(projects.map(async (p) => {
       try {
@@ -305,9 +312,11 @@ export function startPage(opts: PageOpts = {}) {
           const body = (await req.json().catch(() => null)) as { project?: unknown; id?: unknown } | null;
           const project = typeof body?.project === "string" ? body.project : "";
           const id = typeof body?.id === "string" ? body.id : "";
-          if (!listHiveProjects().includes(project) || !/^[A-Za-z]+-\d+$/.test(id)) return json({ error: "No such ticket." }, 404);
+          if (!hiveOn) return noHive();
+          if (!listHiveProjects(setup.home).includes(project) || !/^[A-Za-z]+-\d+$/.test(id)) return json({ error: "No such ticket." }, 404);
           const t = (await allTickets(false)).tickets.find((x) => x.project === project && x.id === id);
-          const { woke } = await sendToAgent({ name: "maya", message: startTicketMessage(project, id, t?.title ?? null), fromPage: true, home, claudeBin: claude, run });
+          const who = human(readCombConfig(home));
+          const { woke } = await sendToAgent({ name: "maya", message: startTicketMessage(project, id, t?.title ?? null, who), fromPage: true, home, claudeBin: claude, run });
           return json({ woke });
         }),
       },
@@ -355,17 +364,19 @@ export function startPage(opts: PageOpts = {}) {
         const path = join(agentDir(validateAgentName(req.params.name), home), `${file}.md`);
         return json({ text: existsSync(path) ? await readFile(path, "utf-8") : "" });
       }),
-      "/api/tickets": (req) => api(req, async (url) => json(await allTickets(url.searchParams.has("fresh")))),
+      "/api/tickets": (req) => api(req, async (url) => hiveOn ? json(await allTickets(url.searchParams.has("fresh"))) : noHive()),
       "/api/ticket": (req) => api(req, async (url) => {
         const project = url.searchParams.get("project") ?? "";
         const id = url.searchParams.get("id") ?? "";
-        if (!listHiveProjects().includes(project) || !id) return json({ error: "No such ticket." }, 404);
+        if (!hiveOn) return noHive();
+        if (!listHiveProjects(setup.home).includes(project) || !id) return json({ error: "No such ticket." }, 404);
         return json({ text: await hive.showTicket(project, id) });
       }),
-      "/api/projects": (req) => api(req, () => json({ projects: listHiveProjects() })),
+      "/api/projects": (req) => api(req, () => json({ projects: hiveOn ? listHiveProjects(setup.home) : [] })),
       "/api/memory": (req) => api(req, async (url) => {
         const project = url.searchParams.get("project") ?? "";
-        if (!listHiveProjects().includes(project)) return json({ error: "No such project." }, 404);
+        if (!hiveOn) return noHive();
+        if (!listHiveProjects(setup.home).includes(project)) return json({ error: "No such project." }, 404);
         return json({ entries: await hive.memory(project) });
       }),
     },
@@ -386,14 +397,14 @@ export function startPage(opts: PageOpts = {}) {
 }
 
 /**
- * What Maya hears when Greg clicks Start on a ticket. She routes it; the
- * click is all the input Greg gives.
+ * What Maya hears when the user clicks Start on a ticket. She routes it; the
+ * click is all the input the user gives. Tickets exist only with hive.
  */
-export function startTicketMessage(project: string, id: string, title: string | null): string {
+export function startTicketMessage(project: string, id: string, title: string | null, who: Human = { name: "the user", Name: "The user" }): string {
   return [
-    `Start ${project} ${id}${title ? `, "${title}"` : ""}. Greg clicked Start on the ticket; that is his go.`,
+    `Start ${project} ${id}${title ? `, "${title}"` : ""}. ${who.Name} clicked Start on the ticket; that is the go.`,
     `Start a task agent for it in the ${project} repo, on its own worktree, with a charter that holds what it needs: the ticket, your context, and where the design docs and hive memory are.`,
-    "Do not come back to Greg first. If something blocks it that only he can clear, file it with queue_add.",
+    `Do not come back to ${who.name} first. If something blocks it that only ${who.name} can clear, file it with queue_add.`,
   ].join(" ");
 }
 

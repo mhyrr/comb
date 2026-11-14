@@ -8,7 +8,7 @@ import { parseMemory, parseTicketLine } from "../hive";
 import { Tail } from "../page/feed";
 import { installPageService, pagePlist } from "../page/service";
 import { activityOf, buildSnapshot, FOLD_AFTER_MS, foldedAgents, recentOf, sessionFolds } from "../page/state";
-import { incoming, parseLines, PAGE_SIGNATURE, settle, toolDetail, transcriptPath } from "../transcript";
+import { incoming, pageSignature, parseLines, settle, toolDetail, transcriptPath } from "../transcript";
 
 const line = (o: object) => JSON.stringify(o);
 const user = (content: unknown, extra: object = {}) =>
@@ -29,8 +29,18 @@ describe("incoming: who sent a prompt", () => {
   });
 
   test("the page's signature means Greg, and its note to the agent is dropped", () => {
-    const text = `${PAGE_SIGNATURE}\n(He reads your answer on the page. Answer in your reply; do not use agent_send for it.)\n\nWhat's waiting on me?`;
+    const text = `Greg, on the comb page:\n(He reads your answer on the page. Answer in your reply; do not use agent_send for it.)\n\nWhat's waiting on me?`;
     expect(incoming(text, "comb")).toEqual({ from: "greg", text: "What's waiting on me?" });
+  });
+
+  test("any configured name's signature means the human; old and new transcripts both parse", () => {
+    for (const Name of ["Greg", "Ada", "The user"]) {
+      const text = `${pageSignature(Name)}\n(${Name} reads your answer on the page. Answer in your reply; do not use agent_send for it.)\n\nShip it.`;
+      expect(incoming(text, "comb")).toEqual({ from: "greg", text: "Ship it." });
+    }
+    expect(pageSignature("Greg")).toBe("Greg, on the comb page:");
+    // A message that merely mentions the page later on is not a signature.
+    expect(incoming("Look at this, on the comb page: the queue.", "maya")?.from).toBe("maya");
   });
 
   test("comb's start and restart prompts are comb's, not Greg's", () => {
@@ -76,7 +86,7 @@ describe("parseLines and settle", () => {
   });
 
   test("a message to an idle live session arrives as a meta line and still shows", () => {
-    const text = `Another Claude session sent a message:\n<cross-session-message from-name="comb-79">\n${PAGE_SIGNATURE}\n(He reads your answer on the page. Answer in your reply; do not use agent_send for it.)\n\ndo I need the side chat?\n</cross-session-message>`;
+    const text = `Another Claude session sent a message:\n<cross-session-message from-name="comb-79">\nGreg, on the comb page:\n(He reads your answer on the page. Answer in your reply; do not use agent_send for it.)\n\ndo I need the side chat?\n</cross-session-message>`;
     const events = parseLines([user(text, { isMeta: true }), user("<system-reminder>noise</system-reminder>", { isMeta: true }), user("plain meta", { isMeta: true })], "maya");
     expect(events).toEqual([expect.objectContaining({ k: "in", from: "greg", text: "do I need the side chat?" })]);
   });

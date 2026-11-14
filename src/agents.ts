@@ -11,9 +11,11 @@ import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
+import IDENTITY_TEMPLATE from "../templates/identity.md" with { type: "text" };
+import { human, readCombConfig, renderTemplate, type CombConfig, type Human } from "./config";
 import { UsageError } from "./errors";
-import { hiveIdentity, projectForDir } from "./hive";
-import { PAGE_SIGNATURE } from "./transcript";
+import { detectHive, hiveIdentity, projectForDir, type HiveSetup } from "./hive";
+import { pageSignature } from "./transcript";
 import { ensureCombScaffold, resolveCombHome } from "./paths";
 import {
   findClaudeBin,
@@ -96,14 +98,24 @@ export async function createWorkspace(dir: string, name: string, charter: string
   await writeFile(join(dir, "log.md"), `# Log: ${name}\n\n`, "utf-8");
 }
 
-/** The operating contract appended after HIVE identity. */
-export function agentPreamble(a: { name: string; dir: string; parent: string }): string {
+/**
+ * The operating contract appended after the identity. `user` is how it names
+ * the human (config.json's userName, else "the user"). `hive` keeps the lines
+ * about hive's tools and TRUST.md; without hive they are left out (D24).
+ */
+export function agentPreamble(a: { name: string; dir: string; parent: string; user?: Human; hive?: boolean }): string {
+  const { name: u, Name: U } = a.user ?? { name: "the user", Name: "The user" };
+  const hive = a.hive ?? true;
   const parentLine = a.parent === GREG
-    ? "Your parent is Greg. He reads your reports and log, and may message you directly."
+    ? `Your parent is ${u}. ${U} reads your reports and log, and may message you directly.`
     : `Your parent is the agent "${a.parent}". Tell it with \`agent_send\` when you finish, are stuck, or have a question or an idea.`;
   const who = a.name === "maya"
     ? `You are Maya, as the identity above says, running as the comb agent "maya".`
-    : `The identity above is the hive's shared voice and standards. Its name and role are Maya's. Here you are the comb agent "${a.name}", and your role is your charter. Maya is the comb agent "maya", the chief of staff.`;
+    : `The identity above is the ${hive ? "hive's" : "team's"} shared voice and standards. Its name and role are Maya's. Here you are the comb agent "${a.name}", and your role is your charter. Maya is the comb agent "maya", the chief of staff.`;
+  const external = hive ? "TRUST.md" : "push, deploy, send, post, spend";
+  const memory = hive
+    ? "Project knowledge that should outlast you goes to hive with\n  `write_hive_memory`."
+    : "Project knowledge that should outlast you goes in the repo's docs\n  or your report.";
   return `# comb agent: ${a.name}
 
 ${who}
@@ -113,25 +125,26 @@ ${a.dir}. Write files only there and in the repo you work in.
 
 When the job is done, write the report, tell your parent, and stop. You are
 not done for good: follow-ups and corrections come back to you as messages,
-because your context is this job. Greg can read and message you on his page
-while you work.
+because your context is this job. ${U} can read and message you on the comb
+page while you work.
 
 ## Push the work forward
 
-Take the work as far as you can on your own. Greg wants decisions made, not
+Take the work as far as you can on your own. ${U} wants decisions made, not
 questions asked.
 
 - Decide and act when the step is reversible and inside your charter. Then
   tell your parent what you decided and why, in your next message or report.
 - Bring it up first, with your recommendation, when the step is external
-  (TRUST.md), cannot be undone, or sets direction Greg has not set: a design
-  call, a change of scope, a trade-off he would want to weigh.
-- To bring something to Greg, file it with \`queue_add\`: one item per ask,
-  with what you will do on "go" and your case for it. Greg answers on his
+  (${external}), cannot be undone, or sets direction ${u} has not set: a
+  design call, a change of scope, a trade-off ${u} would want to weigh.
+- To bring something to ${u}, file it with \`queue_add\`: one item per ask,
+  with what you will do on "go" and your case for it. ${U} answers on the
   page with Go, Not now or Redirect, and the answer comes back to you as a
-  message. Do not bury asks in a report or a long reply; he acts on the queue.
+  message. Do not bury asks in a report or a long reply; ${u} acts on the
+  queue.
 - When you wait on an answer, keep working on what does not depend on it.
-- For a second opinion, use a sub-agent. Council needs Greg's yes.
+- For a second opinion, use a sub-agent.${hive ? ` Council needs ${u}'s yes.` : ""}
 
 ## Your workspace
 
@@ -140,8 +153,7 @@ questions asked.
 - log.md: one line per thing you do, as \`- <ISO time> what, and why\`.
   Decisions go here too.
 - memory/: your working notes, so a fresh session can pick up from this
-  folder. Project knowledge that should outlast you goes to hive with
-  \`write_hive_memory\`.
+  folder. ${memory}
 - reports/: one file per finished piece of work, YYYY-MM-DD-<slug>.md: what
   you did, the decisions you made, what you verified and how, and what is
   left. Answers to questions go back as messages, not reports.
@@ -152,8 +164,7 @@ ${parentLine}
 
 \`agent_list\` is the roster. \`agent_send\` reaches any agent or session by
 name, working or asleep. When a message names its sender, reply with
-\`agent_send\` to that name. Tickets and memory are shared through the hive
-MCP tools.
+\`agent_send\` to that name.${hive ? " Tickets and memory are shared through the hive\nMCP tools." : ""}
 
 Split work the way it runs best. Use your harness's sub-agents for parallel
 reading and checks inside your job. Use \`agent_start\` for a separate job
@@ -161,13 +172,13 @@ that should run on its own and report back: you become its parent, give it a
 charter that says what done means and where its context is, and set worktree
 when it edits code.
 
-Greg's own sessions (interactive, in \`claude agents\`) are outside the tree.
+${U}'s own sessions (interactive, in \`claude agents\`) are outside the tree.
 Answer one that writes to you; never hand one work.
 
 ## Limits
 
 Code changes go on your own branch or worktree. Never merge or push. Other
-external actions follow TRUST.md: ask through your parent.
+external actions ${hive ? "follow TRUST.md" : "(push, deploy, send, post, spend) are not yours"}: ask through your parent.
 `;
 }
 
@@ -215,7 +226,32 @@ export type StartAgentOpts = {
   claudeBin?: string;
   run?: Run;
   wait?: (ms: number) => Promise<void>;
+  /** Whether to use hive. Detected when omitted. */
+  hive?: HiveSetup;
 };
+
+/**
+ * The identity agents get without hive: config.json's identityFile, else
+ * `<COMB_HOME>/identity.md` (comb init writes it), else the default shipped
+ * in templates/identity.md. A named identityFile that is missing fails the
+ * start, so a typo is not silently replaced by the default.
+ */
+export async function localIdentity(home: string, config: CombConfig, hive = false): Promise<string> {
+  let text = IDENTITY_TEMPLATE;
+  if (config.identityFile) {
+    if (!existsSync(config.identityFile)) {
+      throw new UsageError(`identityFile in ${join(home, "config.json")} is ${config.identityFile}, which does not exist.`);
+    }
+    text = await readFile(config.identityFile, "utf-8");
+  } else if (existsSync(join(home, "identity.md"))) {
+    text = await readFile(join(home, "identity.md"), "utf-8");
+  }
+  // Rendered at every start, so {{user}} in any of them follows config.json.
+  return renderTemplate(text, { human: human(config), hive });
+}
+
+/** comb's default identity, as shipped (with {{user}} placeholders). */
+export { IDENTITY_TEMPLATE };
 
 export type StartAgentResult = { session: AgentSession; restarted: boolean; dir: string };
 
@@ -257,13 +293,17 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
   const cwd = resolve(expandHome(opts.cwd ?? previous?.cwd ?? process.cwd()));
   if (!existsSync(cwd)) throw new UsageError(`Working directory does not exist: ${cwd}`);
 
-  // Identity first: if hive cannot supply it, nothing has been written yet.
-  const identity = await hiveIdentity(cwd, run);
-  const project = projectForDir(cwd);
+  // Identity first: if it cannot be had, nothing has been written yet. With
+  // hive, it is hive's, as always; without, comb's own file (D24).
+  const config = readCombConfig(home);
+  const hive = opts.hive ?? detectHive({ mode: config.hive });
+  const identity = hive.enabled ? await hiveIdentity(cwd, run, hive.bin) : await localIdentity(home, config, hive.enabled);
+  const project = hive.enabled ? projectForDir(cwd, hive.home) : null;
   if (!exists) await createWorkspace(dir, name, opts.charter!);
 
   const systemPromptFile = join(dir, "system-prompt.md");
-  await writeFile(systemPromptFile, `${identity}\n\n---\n\n${agentPreamble({ name, dir, parent })}`, "utf-8");
+  const preamble = agentPreamble({ name, dir, parent, user: human(config), hive: hive.enabled });
+  await writeFile(systemPromptFile, `${identity}\n\n---\n\n${preamble}`, "utf-8");
   const mcpConfigFile = await writeMcpConfig(dir, name, home);
 
   // A workspace made by `comb init` has a charter but has never run.
@@ -413,8 +453,9 @@ export async function sendToAgent(opts: SendOpts): Promise<{ woke: boolean; sess
   const home = opts.home ?? resolveCombHome();
   const run = opts.run ?? runProcess;
   const claude = opts.claudeBin ?? findClaudeBin();
+  const who = human(readCombConfig(home));
   const text = opts.fromPage
-    ? `${PAGE_SIGNATURE}\n(He reads your answer on the page. Answer in your reply; do not use agent_send for it.)\n\n${opts.message}`
+    ? `${pageSignature(who.Name)}\n(${who.Name} reads your answer on the page. Answer in your reply; do not use agent_send for it.)\n\n${opts.message}`
     : opts.from
       ? `Message from ${opts.from}. Reply with the comb agent_send tool to "${opts.from}".\n\n${opts.message}`
       : opts.message;
@@ -430,7 +471,7 @@ export async function sendToAgent(opts: SendOpts): Promise<{ woke: boolean; sess
     if (!opts.fromPage && opts.from && session.kind === "interactive" && isAgent(opts.from, home)
       && !(await heardFrom(opts.from, opts.name, home))) {
       throw new UsageError(
-        `"${opts.name}" is one of Greg's own sessions, outside the tree. To get work done, start a task agent with agent_start; to ask Greg, use queue_add.`,
+        `"${opts.name}" is one of ${who.name}'s own sessions, outside the tree. To get work done, start a task agent with agent_start; to ask ${who.name}, use queue_add.`,
       );
     }
     await relayMessage(claude, opts.name, text, run);

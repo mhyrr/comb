@@ -60,6 +60,8 @@ export type Snapshot = {
   at: string;
   /** How the page names the human (id "greg"), from config.json; read each build, so an edit shows up live. */
   user: UserLabel;
+  /** hive is on: tickets, memory and `hive attach` (D24). */
+  hive: boolean;
   agents: AgentNode[];
   /** Greg's own interactive sessions. */
   mine: SessionNode[];
@@ -80,6 +82,10 @@ export type BuildOpts = {
   live: LiveSession[];
   claudeHome?: string;
   liveError?: string | null;
+  /** Whether hive is on (detected once at page start). Off by default. */
+  hive?: boolean;
+  /** hive's home, for project names; only read when hive is on. */
+  hiveHome?: string;
 };
 
 export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
@@ -132,7 +138,7 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
       name: row.name,
       sessionId: row.sessionId,
       cwd: row.cwd,
-      project: projectFor(row.cwd),
+      project: opts.hive ? projectFor(row.cwd, opts.hiveHome) : null,
       kind,
       activity: activityOf(row),
       now: tail?.recent.at(-1) ?? null,
@@ -152,7 +158,7 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
 
   const queue = await listItems(home).catch(() => []);
   const user = userLabel(readCombConfig(home));
-  return { at: new Date().toISOString(), user, agents, mine, others, queue, error: opts.liveError ?? null };
+  return { at: new Date().toISOString(), user, hive: opts.hive ?? false, agents, mine, others, queue, error: opts.liveError ?? null };
 }
 
 /** How long a finished agent or Greg's idle session stays in the main list. */
@@ -215,8 +221,8 @@ function countFiles(dir: string): number {
 }
 
 const projectCache = new Map<string, string | null>();
-function projectFor(cwd: string): string | null {
-  if (!projectCache.has(cwd)) projectCache.set(cwd, projectForDir(cwd));
+function projectFor(cwd: string, hiveHome?: string): string | null {
+  if (!projectCache.has(cwd)) projectCache.set(cwd, projectForDir(cwd, hiveHome));
   return projectCache.get(cwd)!;
 }
 

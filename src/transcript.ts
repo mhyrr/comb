@@ -20,8 +20,19 @@ export type FeedEvent =
   /** The turn ended; the agent is waiting. */
   | { k: "idle"; id: string; at: string; ms: number | null };
 
-/** The page signs Greg's messages with this line. */
-export const PAGE_SIGNATURE = "Greg, on the comb page:";
+/**
+ * The page signs the human's messages "<Name>, on the comb page:". Older
+ * transcripts say "Greg, on the comb page:"; any name parses as the human.
+ */
+export function pageSignature(Name: string): string {
+  return `${Name}, on the comb page:`;
+}
+/**
+ * The page always puts a line break after the signature, which keeps prose
+ * that mentions the page from matching. The original "Greg, on the comb
+ * page:" matches as it always did, with or without one.
+ */
+const PAGE_SIGNED = /^(?:Greg, on the comb page:|[^\n,:]{1,80}, on the comb page:(?=\n|$))/;
 
 export function transcriptPath(cwd: string, sessionId: string, claudeHome = join(homedir(), ".claude")): string {
   return join(claudeHome, "projects", cwd.replace(/[/.]/g, "-"), `${sessionId}.jsonl`);
@@ -129,9 +140,10 @@ export function incoming(content: string, defaultFrom: string): { from: string; 
   if (/^(You were restarted from your workspace\.|Read your charter\.md and checklist\.md, then begin\.|This session is being continued from a previous conversation)/.test(text)) {
     return { from: "comb", text };
   }
-  if (text.startsWith(PAGE_SIGNATURE)) {
+  const signed = text.match(PAGE_SIGNED);
+  if (signed) {
     from = "greg";
-    text = text.slice(PAGE_SIGNATURE.length).replace(/^\s*\(.*?\)\s*/, "").trim();
+    text = text.slice(signed[0].length).replace(/^\s*\(.*?\)\s*/, "").trim();
   }
   return { from, text };
 }

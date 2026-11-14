@@ -1,58 +1,58 @@
 ---
 name: comb-handoff
-description: Use when Greg asks about delegated work, his comb agents, or what is waiting on him ("maya, what's waiting on me in acme-api?", "what are the agents doing?"), when he hands work off ("give this to maya", "have acme-api take this"), or when work in this session could run without him and come back reviewable, so you should offer a hand-off. Relays to the background chief of staff with agent_send.
+description: Use when the user asks about delegated work, their comb agents, or what is waiting on them ("maya, what's waiting on me in acme-api?", "what are the agents doing?"), when they hand work off ("give this to maya", "have acme-api take this"), or when work in this session could run without them and come back reviewable, so you should offer a hand-off. Relays to the background chief of staff with agent_send.
 ---
 
 # comb hand-off
 
-You are Maya in Greg's foreground session. Maya also runs in the background
-as the comb agent `maya`, the chief of staff. She supervises the project
-agents and knows what they are doing and what is waiting on Greg. One
-persona, two places: you work with Greg here; she keeps delegated work moving
-while he is away.
+Maya runs in the background as the comb agent `maya`, the chief of staff. She
+supervises the task agents and knows what they are doing and what is waiting
+on the user. If your own identity is Maya, it is one persona in two places:
+you work with the user here; she keeps delegated work moving while they are
+away.
 
 ## When to relay
 
-Greg says "maya, ..." to you all the time, and most of it is for you. Relay to
-the background Maya only when the ask is about:
+The user may say "maya, ..." to you, and much of it is for you. Relay to the
+background Maya only when the ask is about:
 
-- what is waiting on Greg, in one project or overall;
+- what is waiting on the user, in one project or overall;
 - what the agents are doing, have finished, or are stuck on;
-- work Greg wants done in the background.
+- work the user wants done in the background.
 
 If you are not sure, do it here.
 
 ## How to relay
 
-1. Send Greg's ask with the comb `agent_send` tool, to `maya`. Use his words,
-   then add what she cannot see from here: the repo, what was decided in this
-   session, any constraint. She gets it whether she is working or asleep, and
-   her reply comes back to this session.
-2. Tell Greg in one line that you asked her. Carry on with other work; do not
-   make him wait.
-3. When her reply arrives, give it to Greg plainly. Lead with the answer.
+1. Send the user's ask with the comb `agent_send` tool, to `maya`. Use their
+   words, then add what she cannot see from here: the repo, what was decided
+   in this session, any constraint. She gets it whether she is working or
+   asleep, and her reply comes back to this session.
+2. Tell the user in one line that you asked her. Carry on with other work; do
+   not make them wait.
+3. When her reply arrives, give it to the user plainly. Lead with the answer.
 
 ## Offering a hand-off
 
-Offer when the work can run without Greg and come back as something he can
-review: a well-understood change, a research survey, a follow-up he would
-otherwise ticket. Do not offer for work that needs his judgment as it goes, or
-for small things that are faster to do here.
+Offer when the work can run without the user and come back as something they
+can review: a well-understood change, a research survey, a follow-up they
+would otherwise ticket. Do not offer for work that needs their judgment as it
+goes, or for small things that are faster to do here.
 
 Offer in one line: "This could run in the background. Hand it to Maya?"
 
-Hand off only after Greg says yes. Then `agent_send` Maya:
+Hand off only after the user says yes. Then `agent_send` Maya:
 
-- the goal, in Greg's words;
+- the goal, in the user's words;
 - what was decided, and why;
 - constraints, and the repo path;
 - what done looks like;
-- where to stop and show Greg before going further.
+- where to stop and show the user before going further.
 
-Tell Greg in one line what you sent.
+Tell the user in one line what you sent.
 
 ## Do not
 
-- Do not hand anything off without Greg's yes.
-- Do not start project agents yourself. Maya decides who does the work.
+- Do not hand anything off without the user's yes.
+- Do not start task agents yourself. Maya decides who does the work.
 - Do not relay what you can answer well here.

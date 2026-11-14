@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { agentDir, agentPreamble, listAgents, sendToAgent, startAgent, validateAgentName } from "../agents";
 import { buildStartArgv, childEnv, parseBackgrounded, type LiveSession, type Run } from "../claude";
-import { projectForDir } from "../hive";
+import { projectForDir, type HiveSetup } from "../hive";
 import { incoming } from "../transcript";
 
 /**
@@ -68,12 +68,18 @@ describe("comb agents", () => {
     process.env.HIVE_HOME = join(root, "hive");
     await mkdir(process.env.HIVE_HOME, { recursive: true });
     process.env.COMB_MCP_BIN = "/bin/comb-mcp-test";
+    // These tests are Greg's install: hive on, and his name in config.json.
+    // Pinning hive on keeps them from depending on whether this machine has it.
+    process.env.COMB_HIVE = "on";
+    await mkdir(home, { recursive: true });
+    await writeFile(join(home, "config.json"), JSON.stringify({ userName: "Greg" }));
   });
 
   afterEach(async () => {
     if (saved.hive === undefined) delete process.env.HIVE_HOME; else process.env.HIVE_HOME = saved.hive;
     if (saved.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = saved.key;
     delete process.env.COMB_MCP_BIN;
+    delete process.env.COMB_HIVE;
     await rm(root, { recursive: true, force: true });
   });
 
@@ -463,9 +469,96 @@ describe("agentPreamble", () => {
   });
 
   test("every agent is told it has one job, takes follow-ups, and stays off Greg's sessions", () => {
-    const p = agentPreamble({ name: "acme-api-tk109", dir: "/w", parent: "maya" });
+    const p = agentPreamble({ name: "acme-api-tk109", dir: "/w", parent: "maya", user: { name: "Greg", Name: "Greg" } });
     expect(p).toContain("with one job: your charter");
     expect(p).toContain("follow-ups and corrections come back to you");
     expect(p).toContain("Greg's own sessions (interactive, in `claude agents`) are outside the tree.");
+  });
+
+  test("with hive (Greg's install), the hive lines are all there", () => {
+    const p = agentPreamble({ name: "acme-api", dir: "/w", parent: "greg", user: { name: "Greg", Name: "Greg" }, hive: true });
+    expect(p).toContain("The identity above is the hive's shared voice and standards.");
+    expect(p).toContain("(TRUST.md), cannot be undone, or sets direction Greg has not set");
+    expect(p).toContain("Council needs Greg's yes.");
+    expect(p).toContain("goes to hive with\n  `write_hive_memory`.");
+    expect(p).toContain("Tickets and memory are shared through the hive\nMCP tools.");
+    expect(p).toContain("external actions follow TRUST.md: ask through your parent.");
+    expect(p).toContain("Your parent is Greg. Greg reads your reports and log");
+  });
+
+  test("without hive, nothing names hive, TRUST.md or council, and an unnamed user is 'the user'", () => {
+    const p = agentPreamble({ name: "acme-api", dir: "/w", parent: "greg", hive: false });
+    expect(p).not.toMatch(/hive|TRUST\.md|[Cc]ouncil|Greg/);
+    expect(p).toContain("The identity above is the team's shared voice and standards.");
+    expect(p).toContain("when the step is external\n  (push, deploy, send, post, spend)");
+    expect(p).toContain("goes in the repo's docs\n  or your report.");
+    expect(p).toContain("Your parent is the user. The user reads your reports and log");
+    expect(p).toContain("The user's own sessions (interactive");
+  });
+});
+
+describe("without hive", () => {
+  let root: string;
+  let home: string;
+  let repo: string;
+  const off: HiveSetup = { enabled: false, mode: "auto", bin: "hive", home: "/nonexistent-hive", why: "test" };
+
+  beforeEach(async () => {
+    root = await realpath(await mkdtemp(join(tmpdir(), "comb-nohive-")));
+    home = join(root, "comb");
+    repo = join(root, "repo");
+    await mkdir(repo, { recursive: true });
+    process.env.COMB_MCP_BIN = "/bin/comb-mcp-test";
+  });
+  afterEach(async () => {
+    delete process.env.COMB_MCP_BIN;
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const start = (claude: ReturnType<typeof fakeClaude>, name = "notes") =>
+    startAgent({ name, charter: "c", cwd: repo, home, claudeBin: "claude", run: claude.run, wait: noWait, hive: off });
+
+  test("an agent starts on comb's default identity: hive is never run, and there is no project", async () => {
+    const claude = fakeClaude();
+    const { session, dir } = await start(claude);
+    expect(claude.calls.some((c) => c.argv[0] === "hive" || c.argv[1] === "identity")).toBe(false);
+    expect(session.project).toBeNull();
+    const prompt = await readFile(join(dir, "system-prompt.md"), "utf-8");
+    expect(prompt.startsWith("# Identity\n\nYou are Maya, chief of staff for the user's agents.")).toBe(true);
+    expect(prompt).not.toContain("{{");
+    expect(prompt).toContain("Your parent is the user.");
+  });
+
+  test("the identity names the configured user", async () => {
+    await mkdir(home, { recursive: true });
+    await writeFile(join(home, "config.json"), JSON.stringify({ userName: "Ada" }));
+    const { dir } = await start(fakeClaude());
+    const prompt = await readFile(join(dir, "system-prompt.md"), "utf-8");
+    expect(prompt).toContain("chief of staff for Ada's agents");
+    expect(prompt).toContain("Your parent is Ada. Ada reads your reports");
+  });
+
+  test("~/.comb/identity.md replaces the default, and identityFile replaces both", async () => {
+    await mkdir(home, { recursive: true });
+    await writeFile(join(home, "identity.md"), "# Mine\n");
+    expect((await readFile(join((await start(fakeClaude(), "one")).dir, "system-prompt.md"), "utf-8")).startsWith("# Mine\n")).toBe(true);
+    const other = join(root, "elsewhere.md");
+    await writeFile(other, "# Elsewhere\n");
+    await writeFile(join(home, "config.json"), JSON.stringify({ identityFile: other }));
+    expect((await readFile(join((await start(fakeClaude(), "two")).dir, "system-prompt.md"), "utf-8")).startsWith("# Elsewhere\n")).toBe(true);
+  });
+
+  test("a missing identityFile fails the start and leaves nothing behind", async () => {
+    await mkdir(home, { recursive: true });
+    await writeFile(join(home, "config.json"), JSON.stringify({ identityFile: join(root, "missing.md") }));
+    await expect(start(fakeClaude())).rejects.toThrow("which does not exist");
+    expect(existsSync(agentDir("notes", home))).toBe(false);
+  });
+
+  test("a page message is signed with the configured name, and 'The user' without one", async () => {
+    const claude = fakeClaude();
+    await start(claude); // the fake lists it as live and working, so the page's message goes by relay
+    await sendToAgent({ name: "notes", message: "hi", fromPage: true, home, claudeBin: "claude", run: claude.run, wait: noWait });
+    expect(claude.calls.filter((c) => c.argv[1] === "-p").at(-1)!.stdin).toContain("The user, on the comb page:\n(The user reads your answer");
   });
 });

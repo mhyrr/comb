@@ -117,7 +117,7 @@ transcript(maya.cwd, maya.sessionId, [
   result(40, "m3"),
   say(40, "That one changes what ops has to run, so I filed it as a decision with both options and my pick (Postgres)."),
   idle(40, 22_000),
-  user(13, "Greg, on the comb page: what's waiting on me?"),
+  user(13, "The user, on the comb page:\n(The user reads your answer on the page. Answer in your reply; do not use agent_send for it.)\n\nwhat's waiting on me?"),
   tool(13, "m4", "mcp__comb__agent_list", {}),
   result(13, "m4"),
   tool(12, "m5", "Read", { file_path: join(COMB, "agents", "docs-site-search", "reports", `${day(180)}-search-index.md`) }),

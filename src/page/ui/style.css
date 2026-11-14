@@ -666,3 +666,7 @@ a.shot img { max-width: min(100%, 320px); max-height: 220px; border-radius: 8px;
   .split > nav button { width: auto; white-space: nowrap; gap: 6px; }
   .view-title { font-size: var(--t-2xl); }
 }
+
+/* No hive: the Tickets and Memory views say what hive adds (D24). */
+.no-hive { max-width: 62ch; }
+.no-hive ul { margin: 12px 0; }

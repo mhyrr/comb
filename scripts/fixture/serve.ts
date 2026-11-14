@@ -4,17 +4,23 @@
  * and the fake hive MCP server. Nothing reads the real ~/.comb, ~/.claude or
  * ~/.hive: HOME points into the fixture.
  *
- *   bun scripts/fixture/serve.ts <dir> [port]     (port defaults to 4799)
+ *   bun scripts/fixture/serve.ts <dir> [port] [--no-hive]     (port defaults to 4799)
+ *
+ * With hive (the default) the page runs as on a hive install, against the
+ * fake hive MCP server. --no-hive runs it as on plain Claude Code (D24).
  */
 import { chmodSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const dir = resolve(process.argv[2] ?? "");
-if (!process.argv[2]) {
-  console.error("usage: bun scripts/fixture/serve.ts <dir> [port]");
+const args = process.argv.slice(2);
+const noHive = args.includes("--no-hive");
+const [dirArg, portArg] = args.filter((a) => a !== "--no-hive");
+if (!dirArg) {
+  console.error("usage: bun scripts/fixture/serve.ts <dir> [port] [--no-hive]");
   process.exit(2);
 }
-const port = process.argv[3] ?? "4799";
+const dir = resolve(dirArg);
+const port = portArg ?? "4799";
 const here = import.meta.dir;
 const repo = resolve(here, "..", "..");
 const home = join(dir, "home");
@@ -31,9 +37,12 @@ Object.assign(env, {
   COMB_CLAUDE_BIN: fakeClaude,
   COMB_HIVE_MCP: `${process.execPath} ${join(here, "fake-hive-mcp.ts")}`,
   COMB_REX_BIN: "/nonexistent",
+  // Pinned either way, so the fixture never depends on whether this machine has hive.
+  COMB_HIVE: noHive ? "off" : "on",
+  COMB_HIVE_BIN: noHive ? "/nonexistent" : "hive",
 });
 
-console.log(`comb page (fixture) at http://127.0.0.1:${port}`);
+console.log(`comb page (fixture${noHive ? ", no hive" : ""}) at http://127.0.0.1:${port}`);
 const child = Bun.spawn([process.execPath, join(repo, "src", "cli.ts"), "page", "--serve", "--port", port], { env, stdout: "inherit", stderr: "inherit" });
 process.on("SIGINT", () => child.kill());
 process.on("SIGTERM", () => child.kill());

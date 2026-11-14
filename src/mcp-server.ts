@@ -1,14 +1,15 @@
 /**
  * comb-mcp: comb's MCP tools. comb hands it to each agent it starts with
- * --mcp-config (COMB_AGENT names that agent); Greg's sessions load it from
+ * --mcp-config (COMB_AGENT names that agent); the user's own sessions load it from
  * user scope. Four tools: the roster, a message to anyone, a new agent, and
- * an item in front of Greg.
+ * an item in front of the user.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
 import { formatAgentList, GREG, listAgents, sendToAgent, startAgent } from "./agents";
+import { human, readCombConfig } from "./config";
 import { findClaudeBin, listLiveSessions } from "./claude";
 import { addItem } from "./queue";
 
@@ -26,13 +27,16 @@ async function caller(): Promise<string | null> {
   }
 }
 
+// How the tools name the human: config.json's userName, else "the user".
+const who = human(readCombConfig());
+
 const server = new McpServer(
   { name: "comb", version: "0.2.0" },
   {
     instructions:
       "comb runs agents: background sessions, one job each, with a workspace under ~/.comb/agents/<name>/. " +
       "agent_list is the roster. agent_send messages any agent or session and works whether it is working or asleep. " +
-      "agent_start makes a new agent. queue_add puts a proposal, decision, review or blocker in front of Greg.",
+      `agent_start makes a new agent. queue_add puts a proposal, decision, review or blocker in front of ${who.name}.`,
   },
 );
 
@@ -77,23 +81,23 @@ server.registerTool("agent_send", {
 
 server.registerTool("queue_add", {
   description:
-    "Put something in front of Greg: a proposal worth doing, a decision that is his, work ready for his review, " +
-    "or a blocker only he can clear. It appears on his page with Go / Not now / Redirect, and his answer comes back " +
+    `Put something in front of ${who.name}: a proposal worth doing, a decision that is theirs, work ready for review, ` +
+    `or a blocker only they can clear. It appears on the comb page with Go / Not now / Redirect, and the answer comes back ` +
     "to you as a message. File one item per ask, with your recommendation, instead of asking in prose. Do not " +
     "file what you can decide yourself.",
   inputSchema: {
     kind: z.enum(["proposal", "decision", "review", "blocker"]),
-    title: z.string().describe("What Greg says yes or no to, in under 80 characters. E.g. 'Start an acme-api agent on TK-143'."),
-    action: z.string().describe("Exactly what you will do when he says go, in one sentence."),
+    title: z.string().describe(`What ${who.name} says yes or no to, in under 80 characters. E.g. 'Start an acme-api agent on TK-143'.`),
+    action: z.string().describe("Exactly what you will do on go, in one sentence."),
     why: z.string().describe("Your case in Markdown: why now, your recommendation, the evidence, what it costs."),
-    project: z.string().optional().describe("The hive project, if there is one."),
+    project: z.string().optional().describe("The project, if there is one."),
     ticket: z.string().optional().describe("The ticket ID, if there is one."),
   },
 }, async ({ kind, title, action, why, project, ticket }) => {
   try {
     const from = (await caller()) ?? "unknown";
     const item = await addItem({ kind, from, title, action, body: why, project, ticket });
-    return { content: [{ type: "text" as const, text: `Filed ${item.id}. Greg's answer will come to "${from}" as a message.` }] };
+    return { content: [{ type: "text" as const, text: `Filed ${item.id}. The answer will come to "${from}" as a message.` }] };
   } catch (err) {
     return fail(err);
   }

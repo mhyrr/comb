@@ -150,7 +150,7 @@ describe("POST /api/agent/:name/terminal", () => {
     const fake = fakeRun(rexAnswers([]));
     calls = fake.calls;
     const hive = { close: async () => {} } as unknown as HiveClient;
-    page = startPage({ port, home, claudeBin: "/bin/false", run: fake.run, pollMs: 60_000, hive, rexBin: REX, hiveBin: HIVE });
+    page = startPage({ port, home, claudeBin: "/bin/false", run: fake.run, pollMs: 60_000, hive, rexBin: REX, hiveBin: HIVE, hiveSetup: { enabled: true, mode: "on", bin: HIVE, home: "/nonexistent-hive", why: "test" } });
   });
   afterEach(async () => {
     await page.stop();
@@ -188,5 +188,66 @@ describe("POST /api/agent/:name/terminal", () => {
     const res = await post("acme-api");
     expect(res.status).toBe(409);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("the page without hive (D24)", () => {
+  let home: string;
+  let work: string;
+  let page: { url: string; stop: () => Promise<void> };
+  let calls: Call[];
+  const port = 49000 + Math.floor(Math.random() * 900);
+  const origin = `http://127.0.0.1:${port}`;
+  const touched: string[] = [];
+
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), "comb-home-"));
+    work = await mkdtemp(join(tmpdir(), "comb-work-"));
+    const dir = join(home, "agents", "acme-api");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "charter.md"), "# acme-api\n");
+    await writeFile(join(dir, "session.json"), JSON.stringify({ name: "acme-api", sessionId: "s1", parent: "maya", cwd: work, worktree: false, project: null }));
+    const fake = fakeRun((argv) => (argv[1] === "agents" ? { stdout: "[]" } : rexAnswers([])(argv)));
+    calls = fake.calls;
+    // Any call into hive's MCP client is a failure: without hive it must never start.
+    const hive = new Proxy({ close: async () => {} }, {
+      get: (t, k) => (k === "close" ? t.close : () => { touched.push(String(k)); throw new Error("hive used"); }),
+    }) as unknown as HiveClient;
+    page = startPage({
+      port, home, claudeBin: "claude", run: fake.run, pollMs: 60_000, hive, rexBin: REX, hiveBin: HIVE, nightlyMs: 60_000,
+      hiveSetup: { enabled: false, mode: "auto", bin: "hive", home: "/nonexistent-hive", why: "test" },
+    });
+  });
+  afterEach(async () => {
+    await page.stop();
+    await rm(home, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  });
+
+  test("tickets, memory and ticket starts answer 'not installed' without touching hive", async () => {
+    const tickets = await fetch(`${page.url}/api/tickets`);
+    expect(tickets.status).toBe(404);
+    expect(await tickets.json()).toMatchObject({ hive: false });
+    expect((await fetch(`${page.url}/api/memory?project=acme-api`)).status).toBe(404);
+    expect((await fetch(`${page.url}/api/ticket?project=acme-api&id=TK-1`)).status).toBe(404);
+    expect(await (await fetch(`${page.url}/api/projects`)).json()).toEqual({ projects: [] });
+    const start = await fetch(`${page.url}/api/tickets/start`, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ project: "acme-api", id: "TK-1" }) });
+    expect(start.status).toBe(404);
+    expect(touched).toEqual([]);
+  });
+
+  test("the snapshot says hive is off", async () => {
+    const res = await fetch(`${page.url}/api/events`);
+    const reader = res.body!.getReader();
+    let text = "";
+    while (!text.includes("\n\n")) text += new TextDecoder().decode((await reader.read()).value);
+    await reader.cancel();
+    expect(text).toContain('"hive":false');
+  });
+
+  test("Open in terminal runs claude attach, not hive attach", async () => {
+    const res = await fetch(`${page.url}/api/agent/acme-api/terminal`, { method: "POST", headers: { origin } });
+    expect(await res.json()).toMatchObject({ command: "claude attach acme-api" });
+    expect(calls.some((c) => c.argv.includes(HIVE))).toBe(false);
   });
 });

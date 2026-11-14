@@ -5,11 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { combInit, resolveCombRepo } from "../init";
+import type { HiveSetup } from "../hive";
 import { startAgent } from "../agents";
 import type { Run } from "../claude";
 
 let root: string;
-let opts: { home: string; repo: string; claudeSkillsDir: string };
+let opts: { home: string; repo: string; claudeSkillsDir: string; hive: HiveSetup };
+const HIVE_ON: HiveSetup = { enabled: true, mode: "auto", bin: "hive", home: "/h", why: "found hive and /h" };
+const HIVE_OFF: HiveSetup = { enabled: false, mode: "auto", bin: "hive", home: "/h", why: "no hive CLI on PATH or in ~/.local/bin" };
 
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "comb-init-")));
@@ -18,7 +21,8 @@ beforeEach(async () => {
   await writeFile(join(repo, "skills", "comb-handoff", "SKILL.md"), "---\nname: comb-handoff\n---\n");
   await mkdir(join(repo, "templates"), { recursive: true });
   await writeFile(join(repo, "templates", "maya-charter.md"), "# Maya\n");
-  opts = { home: join(root, "comb"), repo, claudeSkillsDir: join(root, "claude-skills") };
+  // Greg's install: hive on. The no-hive test below passes its own.
+  opts = { home: join(root, "comb"), repo, claudeSkillsDir: join(root, "claude-skills"), hive: HIVE_ON };
 });
 
 afterEach(async () => {
@@ -89,6 +93,26 @@ test("init reports the user name and never writes config.json", async () => {
   const again = await combInit(opts);
   expect(again.lines.some((l) => l.startsWith("user name: Greg "))).toBe(true);
   expect(await readFile(join(opts.home, "config.json"), "utf-8")).toBe(mine);
+});
+
+test("with hive, init says so and writes no identity file", async () => {
+  const r = await combInit(opts);
+  expect(r.lines).toContain("hive: on (found hive and /h): identity, memory, tickets and nightly picks come from hive");
+  expect(existsSync(join(opts.home, "identity.md"))).toBe(false);
+});
+
+test("without hive, init says how to get it, writes the default identity once, and renders Maya's charter for no hive", async () => {
+  await writeFile(join(opts.repo, "templates", "maya-charter.md"), "# Maya for {{user}}\n{{#hive}}\nhive line\n{{/hive}}\n{{^hive}}\nplain line\n{{/hive}}\n");
+  const first = await combInit({ ...opts, hive: HIVE_OFF });
+  expect(first.lines.some((l) => l.startsWith("hive: off (no hive CLI on PATH or in ~/.local/bin). comb runs on plain Claude Code.") && l.endsWith("https://github.com/mhyrr/hive"))).toBe(true);
+  const identity = await readFile(join(opts.home, "identity.md"), "utf-8");
+  expect(identity).toStartWith("# Identity\n\nYou are Maya, chief of staff for {{user}}'s agents.");
+  expect(await readFile(join(opts.home, "agents", "maya", "charter.md"), "utf-8")).toBe("# Maya for the user\nplain line\n");
+
+  await writeFile(join(opts.home, "identity.md"), "# Mine\n");
+  const again = await combInit({ ...opts, hive: HIVE_OFF });
+  expect(again.lines).toContain(`identity: ${join(opts.home, "identity.md")} exists, left as is`);
+  expect(await readFile(join(opts.home, "identity.md"), "utf-8")).toBe("# Mine\n");
 });
 
 test("resolveCombRepo: COMB_REPO, then a comb checkout in cwd, then ~/work/comb", async () => {

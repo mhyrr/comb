@@ -1,7 +1,7 @@
 /**
  * comb's only contact with hive. hive is the personalization layer (identity,
- * memory, taste, tickets); comb reads it through stable interfaces and never
- * writes to ~/.hive:
+ * memory, taste, tickets). comb works without it (D24); when `detectHive`
+ * finds it, comb reads it through stable interfaces and never writes ~/.hive:
  *   - identity:  `hive identity emit`, run in the agent's directory
  *   - projects:  the registry files ~/.hive/projects/<name>/config.md
  *   - memory and tickets: the `hive` MCP server every Claude session loads
@@ -13,22 +13,75 @@ import { homedir } from "node:os";
 import { join, sep } from "node:path";
 
 import { runProcess, type Run } from "./claude";
+import { readCombConfig, type HiveMode } from "./config";
 
 export function resolveHiveHome(): string {
   return process.env.HIVE_HOME || join(homedir(), ".hive");
 }
 
+/** Where to get hive, for the "install hive" notes in comb init and on the page. */
+export const HIVE_URL = "https://github.com/mhyrr/hive";
+
 export function findHiveBin(): string {
   return process.env.COMB_HIVE_BIN || "hive";
 }
 
-/** HIVE identity for a session in `cwd`: soul, Greg, project memory, taste. */
-export async function hiveIdentity(cwd: string, run: Run = runProcess): Promise<string> {
+/**
+ * Whether comb uses hive (D24). With hive, comb works as it always has:
+ * identity from `hive identity emit`, project names from the registry,
+ * tickets and memory on the page, and hive's nightly in the queue. Without
+ * it, comb runs on plain Claude Code.
+ */
+export type HiveSetup = {
+  enabled: boolean;
+  mode: HiveMode;
+  /** The command to run: "hive" when it is on PATH, so the argv is what it always was. */
+  bin: string;
+  home: string;
+  /** One line on why, for `comb init` and the page log. */
+  why: string;
+};
+
+/**
+ * Finds the hive CLI: COMB_HIVE_BIN, then "hive" on PATH, then
+ * ~/.local/bin/hive (launchd's PATH rarely holds it). Null when none.
+ */
+export function locateHive(exists: (p: string) => boolean = existsSync): string | null {
+  if (process.env.COMB_HIVE_BIN) return process.env.COMB_HIVE_BIN;
+  if (Bun.which("hive")) return "hive";
+  const local = join(process.env.HOME || homedir(), ".local", "bin", "hive");
+  return exists(local) ? local : null;
+}
+
+/**
+ * Decides once per process whether hive is on. "auto" (the default) needs
+ * both the CLI and hive's home (~/.hive); "on" requires hive, so a missing
+ * one fails loudly at the next start as it always did; "off" never uses it.
+ */
+export function detectHive(o: {
+  mode?: HiveMode;
+  hiveHome?: string;
+  locate?: () => string | null;
+  exists?: (p: string) => boolean;
+} = {}): HiveSetup {
+  const mode = o.mode ?? readCombConfig().hive;
+  const home = o.hiveHome ?? resolveHiveHome();
+  const exists = o.exists ?? existsSync;
+  const found = (o.locate ?? (() => locateHive(exists)))();
+  if (mode === "off") return { enabled: false, mode, bin: found ?? "hive", home, why: "set to off in config.json or COMB_HIVE" };
+  if (mode === "on") return { enabled: true, mode, bin: found ?? "hive", home, why: "set to on in config.json or COMB_HIVE" };
+  if (!found) return { enabled: false, mode, bin: "hive", home, why: "no hive CLI on PATH or in ~/.local/bin" };
+  if (!exists(home)) return { enabled: false, mode, bin: found, home, why: `found ${found}, but ${home} does not exist` };
+  return { enabled: true, mode, bin: found, home, why: `found ${found} and ${home}` };
+}
+
+/** HIVE identity for a session in `cwd`: soul, the user, project memory, taste. */
+export async function hiveIdentity(cwd: string, run: Run = runProcess, bin: string = findHiveBin()): Promise<string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
   let res;
   try {
-    res = await run([findHiveBin(), "identity", "emit"], { cwd, env });
+    res = await run([bin, "identity", "emit"], { cwd, env });
   } catch (err) {
     throw new Error(`Could not run hive identity emit: ${err instanceof Error ? err.message : String(err)}. Is hive installed?`);
   }

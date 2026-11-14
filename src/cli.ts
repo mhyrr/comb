@@ -1,19 +1,21 @@
 #!/usr/bin/env bun
 /**
- * comb: agents that work on Greg's projects, layered on hive.
- * hive is who you are and what you know; comb is who is working on what.
+ * comb: a supervision tree of Claude Code background agents. Best with hive
+ * (who you are and what you know); comb is who is working on what (D24).
  */
 import { readFile } from "node:fs/promises";
 
 import { formatAgentList, listAgents, sendToAgent, startAgent } from "./agents";
 import { UsageError } from "./errors";
 import { combInit } from "./init";
+import { detectHive, HIVE_URL } from "./hive";
 import { formatNightly, NIGHTLY_EVERY_MS, runNightly } from "./nightly";
 import { startPage } from "./page/server";
 import { installPageService, PAGE_PORT } from "./page/service";
 import { resolveCombHome } from "./paths";
 
-const usage = `comb: agents that work on your projects, layered on hive.
+const usage = `comb: Claude Code background agents with one job each, a live page and a queue.
+Best with hive (${HIVE_URL}) for identity, memory, tickets and nightly picks.
 
 Usage:
   comb init                      Create ~/.comb and Maya's workspace; link comb-handoff;
@@ -24,9 +26,9 @@ Usage:
   comb send <name> "<message>"   Message an agent; an asleep one wakes with it
   comb page                      Open comb's page (http://127.0.0.1:4747). It runs as a
                                  login service; if it is not up, this serves it until stopped
-  comb page --serve [--port N]   Serve only (what the service runs). It also files hive's
+  comb page --serve [--port N]   Serve only (what the service runs). With hive, it also files hive's
                                  nightly picks and asks into the queue, hourly
-  comb nightly [--dry-run]       File hive's new Act picks and briefing asks into the queue
+  comb nightly [--dry-run]       With hive: file hive's new Act picks and briefing asks into the queue
                                  now; --dry-run prints what it would file and why it skips
 
 Agents are Claude Code background sessions. Watch one with: claude attach <id>
@@ -58,7 +60,12 @@ async function main(args: string[]): Promise<void> {
     const dryRun = rest.includes("--dry-run");
     const unknown = rest.find((a) => a !== "--dry-run");
     if (unknown) throw new UsageError(`Unknown flag: ${unknown}\n\n${usage}`);
-    console.log(formatNightly(await runNightly({ dryRun })));
+    const hive = detectHive();
+    if (!hive.enabled) {
+      console.log(`hive is off (${hive.why}), so there are no nightly picks to file. Install hive: ${HIVE_URL}`);
+      return;
+    }
+    console.log(formatNightly(await runNightly({ dryRun, hiveHome: hive.home })));
     return;
   }
   if (cmd === "page") {

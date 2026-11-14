@@ -64,7 +64,7 @@ test("the answer message tells the agent exactly what to do", () => {
 
 test("Start on a ticket gives Maya everything she needs and tells her not to come back first", async () => {
   const { startTicketMessage } = await import("../page/server");
-  const m = startTicketMessage("acme-api", "TK-143", "Triage Sobelow findings");
+  const m = startTicketMessage("acme-api", "TK-143", "Triage Sobelow findings", { name: "Greg", Name: "Greg" });
   expect(m).toContain('Start acme-api TK-143, "Triage Sobelow findings"');
   expect(m).toContain("Start a task agent for it in the acme-api repo, on its own worktree");
   expect(m).toContain("Do not come back to Greg first");
