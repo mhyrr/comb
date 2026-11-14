@@ -5,6 +5,9 @@ one job, its own workspace and a parent. A chief of staff, Maya, starts and
 supervises the others. One local page shows what is running, what is waiting
 on you, and what finished.
 
+comb needs only Claude Code. It works best with [hive](#best-with-hive),
+which gives every agent your identity, project memory and tickets.
+
 ![comb's page: the agent tree on the left, the queue in the middle, Maya on the right](docs/img/now-light.png)
 
 ## Why
@@ -22,10 +25,8 @@ keeps track of who is doing what, and puts the asks in one queue.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) 2.1.319 or
   later, signed in with a Claude subscription. comb removes
   `ANTHROPIC_API_KEY` from every agent it starts.
-- [hive](https://github.com/mhyrr/hive), for now. Every agent's identity comes
-  from `hive identity emit`, so an agent does not start without it. Making
-  hive optional is an open decision; see
-  [docs/standalone-decision.md](docs/standalone-decision.md).
+- Optional, and recommended: [hive](https://github.com/mhyrr/hive). See
+  [Best with hive](#best-with-hive).
 
 ## Install
 
@@ -44,20 +45,35 @@ comb init                                       # run from the clone
 
 `comb init` creates `~/.comb`, writes Maya's workspace, links the
 `comb-handoff` skill into `~/.claude/skills`, and installs the page service.
-It overwrites nothing that already exists. Run it again after each build: it
-reloads the page onto the new binary.
+It says whether it found hive. Without hive, it also writes
+`~/.comb/identity.md`, the identity every agent gets; edit it to make it
+yours. It overwrites nothing that already exists. Run it again after each
+build: it reloads the page onto the new binary.
 
 `COMB_HOME` moves comb's state out of `~/.comb`. `COMB_REPO` points
 `comb init` at the clone if you run it from somewhere else.
 
-The page calls you "You". To use your name, put it in `~/.comb/config.json`:
+### Settings
+
+`~/.comb/config.json` is optional, and every key in it is optional:
 
 ```json
-{ "userName": "Ada" }
+{
+  "userName": "Ada",
+  "hive": "auto",
+  "identityFile": "~/notes/me.md"
+}
 ```
 
-The page picks the change up within a few seconds. `comb init` never writes
-this file.
+- **`userName`**: your name, on the page and in what agents are told. Without
+  it, the page says "You" and agents say "the user". The page picks up a
+  change within a few seconds.
+- **`hive`**: `auto` (the default) uses hive when it is installed. `on`
+  requires it, so a broken hive install fails loudly. `off` never uses it.
+- **`identityFile`**: without hive, the identity agents get, in place of
+  `~/.comb/identity.md`. `{{user}}` in it becomes your name.
+
+`comb init` never writes this file.
 
 ## Quick start
 
@@ -146,22 +162,39 @@ Its workspace is a folder you can read and edit:
 
 ![A finished agent's report](docs/img/report-light.png)
 
-## hive
+## Best with hive
 
 [hive](https://github.com/mhyrr/hive) is the layer for who you are and what
-you know: identity, project memory, tickets and a nightly review. comb is the
-layer for who is working on what. comb reads hive and never writes to
-`~/.hive`:
+you know. comb is the layer for who is working on what. On plain Claude Code,
+agents take their work from charters and the queue, and know only what is in
+the repo. With hive installed, comb uses it on its own, and adds:
 
-- **Identity:** `hive identity emit`, run in the agent's directory.
-- **Projects:** hive's registry, so each agent knows its project.
-- **Memory and tickets:** the `hive` MCP server. Agents read and write them;
-  the page shows them read-only.
+- **Identity:** every agent starts with your voice and standards, from
+  `hive identity emit` in its directory, in place of comb's default.
+- **Memory:** agents read and write what each project has learned, through
+  the `hive` MCP server. The page's Memory tab shows it.
+- **Tickets:** agents read and update each project's tickets. The page's
+  Tickets tab shows them across projects, and **Start** hands one to Maya,
+  who starts a task agent for it.
 - **Nightly picks:** each hour, the page server files hive's nightly ticket
-  picks and briefing asks into the queue (`comb nightly --dry-run` shows
-  what it would file).
+  picks and its briefing's asks into the queue (`comb nightly --dry-run`
+  shows what it would file).
+- **Projects:** hive's registry tells each agent which project it is in.
 
 ![Tickets from hive, across projects](docs/img/tickets-dark.png)
+
+To add hive:
+
+```sh
+git clone https://github.com/mhyrr/hive.git && cd hive
+./install.sh
+cd ../comb && comb init     # finds hive and says so
+```
+
+comb reads hive and never writes to `~/.hive`. comb has no ticket system of
+its own. Without hive, the Tickets and Memory tabs say so:
+
+![Without hive, the Tickets tab says what hive adds](docs/img/tickets-no-hive-light.png)
 
 ## Screenshots
 
@@ -170,7 +203,8 @@ it and serve the page against it:
 
 ```sh
 bun scripts/fixture/build.ts /tmp/comb-demo
-bun scripts/fixture/serve.ts /tmp/comb-demo 4799    # http://127.0.0.1:4799
+bun scripts/fixture/serve.ts /tmp/comb-demo 4799              # with hive
+bun scripts/fixture/serve.ts /tmp/comb-demo 4798 --no-hive    # plain Claude Code
 ```
 
 The fixture uses a fake `claude` and a fake hive MCP server, and points
@@ -178,9 +212,9 @@ The fixture uses a fake `claude` and a fake hive MCP server, and points
 
 ## More
 
-- [docs/design.md](docs/design.md): the design and every decision (D1–D23).
-- [docs/standalone-decision.md](docs/standalone-decision.md): whether comb
-  should run without hive.
+- [docs/design.md](docs/design.md): the design and every decision (D1–D24).
+- [docs/standalone-decision.md](docs/standalone-decision.md): how comb came
+  to run with or without hive (D24).
 
 ## License
 

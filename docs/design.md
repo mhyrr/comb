@@ -23,7 +23,9 @@ needs Greg gathered in one place.
 | Owns | Identity, memory, taste, tickets, council, nightly pipeline | Agents, the tree, skills for agent roles, the queue, precedents |
 | State | `~/.hive` | `~/.comb` |
 
-comb reads hive through stable interfaces and never writes `~/.hive`:
+comb runs on plain Claude Code and is best with hive (D24). When hive is
+installed, comb reads it through stable interfaces and never writes
+`~/.hive`:
 
 - **Identity:** `hive identity emit`, run in the agent's directory, so it
   carries that project's memory index and stack hint.
@@ -32,6 +34,10 @@ comb reads hive through stable interfaces and never writes `~/.hive`:
   already loads. Agents read and write project memory and tickets there.
 
 Nothing in comb merges back into hive. There is no cutover.
+
+Without hive, agents get comb's own identity (`~/.comb/identity.md`), take
+their work from charters and the queue, and the page's Tickets and Memory
+tabs say to install hive. comb has no ticket system of its own.
 
 ### How Greg works with it
 
@@ -505,6 +511,31 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   whatever hive wrote within the hour and needs no second plist. The cost:
   no page server, no filing, which is the same condition under which Greg
   could not see the queue anyway.
+
+- **D24. comb runs on plain Claude Code; hive is the recommended adapter**
+  (2026-11-14, `docs/standalone-decision.md`). Greg: "if hive is installed, I
+  want comb to use that. I want all my personalization and tickets and such.
+  ... But I do want comb to be able to attach to claude code generic, and I
+  think the README should specify the dependence on hive for best results."
+  `detectHive` (`src/hive.ts`) decides once per process: `auto` needs the
+  `hive` CLI (PATH, then `~/.local/bin`) and `~/.hive`; `hive` in
+  `~/.comb/config.json`, or `COMB_HIVE`, pins it `on` or `off`. With hive,
+  every hive path works as before: the same `hive identity emit` argv, project
+  names, tickets, memory, nightly (D23), `hive attach`. Without it: identity
+  from `identityFile`, else `~/.comb/identity.md` (seeded by `comb init`),
+  else `templates/identity.md` bundled in the binary; the preamble drops
+  hive's tools, TRUST.md and council; Tickets and Memory say to install hive;
+  nightly is off; Open in terminal runs `claude attach`. No ticket system in
+  comb: a second tracker would compete with hive's, and agents already take
+  work from charters and the queue. The human's name comes from
+  `userName` everywhere comb writes it (preamble, page signature, ticket
+  starts, comb-mcp's tool text, Maya's charter at init); the internal id stays
+  `greg`, so stored state needs no migration. The hand-off skill is a static
+  file linked into `~/.claude/skills`, so it says "the user". The transcript
+  parser reads any "<Name>, on the comb page:" and the original "Greg, on the
+  comb page:" as before. Still open: `hive attach` lives in hive and reads
+  `~/.comb`, which D10's one-way rule forbids; moving it into comb as
+  `comb attach` is separate work.
 
 ## 11. Open questions
 

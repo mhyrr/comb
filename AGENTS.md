@@ -1,9 +1,14 @@
 # comb
 
-comb is the work layer on top of hive. Read `docs/design.md` first.
+comb is the work layer: Claude Code background agents, best with hive
+(D24). Read `docs/design.md` first.
 
 ## Rules
 
+- **Work with and without hive (D24).** `detectHive` decides; every
+  hive-backed feature checks it. Greg's install has hive, and nothing may
+  change for it. Tests pin `COMB_HIVE` (or pass a `HiveSetup`), so they never
+  depend on whether the machine has hive.
 - **Never write `~/.hive`.** comb reads hive only through `hive identity emit`,
   the project registry files, the `hive` MCP server, and hive's nightly
   outputs (`next.json`, `briefings/`, ticket front matter; design §9.3). All comb state lives
@@ -35,10 +40,14 @@ comb is the work layer on top of hive. Read `docs/design.md` first.
   `state.ts` the tree snapshot, `feed.ts` the transcript tail, `ui/` the
   browser code (plain TypeScript, bundled into the binary by Bun).
 - `src/paths.ts`: `~/.comb`.
-- `src/config.ts`: `~/.comb/config.json` (`userName`, the page's name for the
-  human; default "You"). Display only: the internal id stays `greg`.
+- `src/config.ts`: `~/.comb/config.json` (`userName`, `hive`,
+  `identityFile`) and `renderTemplate` for `templates/`. The human's internal
+  id stays `greg` whatever the name.
+- `templates/`: Maya's charter (rendered at `comb init`) and the default
+  identity for agents without hive (bundled into the binary).
 - `scripts/fixture/`: an invented comb world for the README screenshots
-  (`build.ts`, `serve.ts`, a fake `claude` and a fake hive MCP server).
+  (`build.ts`, `serve.ts [--no-hive]`, a fake `claude` and a fake hive MCP
+  server).
   Regenerate `docs/img/` from it, never from a real `~/.comb`.
 
 ## Build and install

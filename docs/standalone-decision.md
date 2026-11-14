@@ -1,6 +1,22 @@
 # Decision: comb with hive, or on its own
 
-**For:** Greg. **Status:** open; Greg decides. **Written:** 2026-11-14.
+**For:** Greg. **Status:** decided 2026-11-14 as (b), recorded as D24 in
+`docs/design.md`, and built (see [What was built](#what-was-built)).
+**Written:** 2026-11-14.
+
+## Decision
+
+Greg chose (b), with hive as the recommended path: "if hive is installed, I
+want comb to use that. I want all my personalization and tickets and such.
+Idk how tickets would work without hive. That's one of the issues. But I do
+want comb to be able to attach to claude code generic, and I think the README
+should specify the dependence on hive for best results."
+
+Tickets: comb has no ticket system of its own. Without hive, agents take
+their work from charters and the queue, and the page's Tickets and Memory
+tabs say to install hive.
+
+The rest of this memo is the case as it was made, before the decision.
 
 ## The question
 
@@ -74,12 +90,7 @@ Claude Code 2.1.319 or later for `--bg` and `claude agents --json`.
      hive's command can stay as an alias that calls comb, or go. This
      restores D10.
   5. The user's name and the chief of staff's name from comb's own config
-     (default "you" and "maya"), not `GREG` and literals. **Partly done
-     (2026-11-14):** the page reads `userName` from `~/.comb/config.json`
-     (`src/config.ts`) and defaults to "You". The id `greg` stays, so stored
-     state needs no migration. Left: the chief of staff's name, the
-     signature on page messages, and the name in the preamble, skill and
-     Maya's charter.
+     (default "you" and "maya"), not `GREG` and literals.
 - **Greg loses:** almost nothing at runtime; his setup is the hive adapter
   on. He pays a second code path (with and without hive) in tests, and one
   more file to tune (the default identity).
@@ -104,8 +115,27 @@ run without hive and hive reaches into comb.
 hive is public on GitHub but has no LICENSE file, so it is not yet open
 source. If comb depends on it, hive needs one too.
 
-## If Greg says go on (b)
+## What was built
 
-Build it as five layered commits in the order above, each green, on its own
-branch. Then the README's "Requirements" section loses the hive line, and
-the hive section becomes "Optional: hive".
+On branch `worktree-comb-public-ready`, 2026-11-14:
+
+1. **Identity source: done.** `detectHive` decides once per process (CLI on
+   PATH or in `~/.local/bin`, plus `~/.hive`; `hive` in config.json or
+   `COMB_HIVE` pins it). Without hive: `identityFile`, else
+   `~/.comb/identity.md`, else `templates/identity.md` bundled in the binary.
+2. **Preamble: done.** hive's tools, TRUST.md and council appear only with
+   hive.
+3. **Page: done.** Without hive, Tickets and Memory say to install hive, Now
+   has no Priority tickets, nightly is off, and Open in terminal runs
+   `claude attach`.
+4. **`comb attach`: not done.** `hive attach` still lives in hive and reads
+   `~/.comb`. Without hive, the page already falls back to `claude attach`.
+   Moving the command is separate work.
+5. **Names: done for the human.** `userName` names the human everywhere comb
+   writes it: the page, the preamble, the page signature, ticket starts,
+   comb-mcp's tool text, and Maya's charter (rendered at `comb init`). The
+   hand-off skill is a static file, so it says "the user". The internal id
+   stays `greg`. The chief of staff is still named Maya; renaming it is not
+   needed for the public release.
+
+The README leads with plain Claude Code and has a "Best with hive" section.
