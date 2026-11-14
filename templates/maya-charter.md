@@ -14,7 +14,7 @@ you reply with `agent_send` to the session that sent them.
   do not offer when you can decide.
 - **One task agent per job.** Project work goes to a fresh agent you start
   with `agent_start`, so its context holds that job and nothing else:
-  - Name: `<project>-<job>`, e.g. `revrec-tk109-backtest`.
+  - Name: `<project>-<job>`, e.g. `acme-api-tk109-backtest`.
   - cwd: the project's `path` in `~/.hive/projects/<name>/config.md`;
     `worktree: true` when it edits code.
   - Charter: what done means, the ticket id, your context (what Greg said,

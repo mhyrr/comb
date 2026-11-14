@@ -80,46 +80,46 @@ describe("comb agents", () => {
   test("a new agent gets a workspace, a session record and a log line", async () => {
     const claude = fakeClaude();
     const { session, restarted, dir } = await startAgent({
-      name: "revrec", charter: "Own the revrec project.", cwd: repo, home,
+      name: "acme-api", charter: "Own the acme-api project.", cwd: repo, home,
       claudeBin: "claude", run: claude.run, wait: noWait,
     });
 
     expect(restarted).toBe(false);
-    expect(dir).toBe(agentDir("revrec", home));
-    expect(await readFile(join(dir, "charter.md"), "utf-8")).toBe("Own the revrec project.\n");
+    expect(dir).toBe(agentDir("acme-api", home));
+    expect(await readFile(join(dir, "charter.md"), "utf-8")).toBe("Own the acme-api project.\n");
     for (const f of ["checklist.md", "log.md", "system-prompt.md", "mcp.json", "session.json"]) {
       expect(existsSync(join(dir, f))).toBe(true);
     }
     expect(existsSync(join(dir, "reports"))).toBe(true);
     expect(existsSync(join(dir, "memory"))).toBe(true);
 
-    expect(session).toMatchObject({ name: "revrec", parent: "greg", cwd: repo, harness: "claude", permissionMode: "auto" });
+    expect(session).toMatchObject({ name: "acme-api", parent: "greg", cwd: repo, harness: "claude", permissionMode: "auto" });
     expect(JSON.parse(await readFile(join(dir, "session.json"), "utf-8")).sessionId).toBe(session.sessionId);
     expect(await readFile(join(dir, "log.md"), "utf-8")).toContain(`started by greg in ${repo} (session ${session.id})`);
 
     const prompt = await readFile(join(dir, "system-prompt.md"), "utf-8");
     expect(prompt.startsWith(`IDENTITY for ${repo}`)).toBe(true);
-    expect(prompt).toContain('Here you are the comb agent "revrec", and your role is your charter.');
+    expect(prompt).toContain('Here you are the comb agent "acme-api", and your role is your charter.');
     expect(prompt).toContain("Decide and act when the step is reversible");
     expect(prompt).toContain("Your parent is Greg.");
 
     const mcp = JSON.parse(await readFile(join(dir, "mcp.json"), "utf-8"));
-    expect(mcp.mcpServers.comb).toMatchObject({ command: "/bin/comb-mcp-test", env: { COMB_AGENT: "revrec", COMB_HOME: home } });
+    expect(mcp.mcpServers.comb).toMatchObject({ command: "/bin/comb-mcp-test", env: { COMB_AGENT: "acme-api", COMB_HOME: home } });
   });
 
   test("the session starts detached on the subscription, with identity in the prompt", async () => {
     process.env.ANTHROPIC_API_KEY = "sk-should-not-leak";
     const claude = fakeClaude();
-    await startAgent({ name: "arete", charter: "c", cwd: repo, home, claudeBin: "claude", run: claude.run, wait: noWait });
+    await startAgent({ name: "mobile-app", charter: "c", cwd: repo, home, claudeBin: "claude", run: claude.run, wait: noWait });
 
     const bg = claude.calls.find((c) => c.argv[1] === "--bg")!;
     expect(bg.cwd).toBe(repo);
     expect(bg.env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(bg.env.HIVE_IDENTITY_IN_PROMPT).toBe("1");
-    const dir = agentDir("arete", home);
+    const dir = agentDir("mobile-app", home);
     expect(bg.argv).toEqual([
       "claude", "--bg", "--mcp-config", join(dir, "mcp.json"),
-      "-n", "arete", "--permission-mode", "auto",
+      "-n", "mobile-app", "--permission-mode", "auto",
       "--append-system-prompt-file", join(dir, "system-prompt.md"),
       "Read your charter.md and checklist.md, then begin.",
     ]);
@@ -151,10 +151,10 @@ describe("comb agents", () => {
   test("a child names its parent and how to reach it", async () => {
     const claude = fakeClaude();
     const { dir } = await startAgent({
-      name: "rate-limiter", charter: "Build TK-142.", parent: "revrec", worktree: true, cwd: repo, home,
+      name: "rate-limiter", charter: "Build TK-142.", parent: "acme-api", worktree: true, cwd: repo, home,
       claudeBin: "claude", run: claude.run, wait: noWait,
     });
-    expect(await readFile(join(dir, "system-prompt.md"), "utf-8")).toContain('Your parent is the agent "revrec". Tell it with `agent_send`');
+    expect(await readFile(join(dir, "system-prompt.md"), "utf-8")).toContain('Your parent is the agent "acme-api". Tell it with `agent_send`');
     const bg = claude.calls.find((c) => c.argv[1] === "--bg")!;
     expect(bg.argv.slice(-3)).toEqual(["-w", "rate-limiter", "Read your charter.md and checklist.md, then begin."]);
   });
@@ -162,10 +162,10 @@ describe("comb agents", () => {
   test("a new agent needs a charter; an existing one refuses a new charter", async () => {
     const claude = fakeClaude();
     const base = { cwd: repo, home, claudeBin: "claude", run: claude.run, wait: noWait };
-    await expect(startAgent({ name: "writing", ...base })).rejects.toThrow("Give it a charter");
-    await startAgent({ name: "writing", charter: "first", ...base });
-    await expect(startAgent({ name: "writing", charter: "second", ...base })).rejects.toThrow("already exists");
-    expect(await readFile(join(agentDir("writing", home), "charter.md"), "utf-8")).toBe("first\n");
+    await expect(startAgent({ name: "notes", ...base })).rejects.toThrow("Give it a charter");
+    await startAgent({ name: "notes", charter: "first", ...base });
+    await expect(startAgent({ name: "notes", charter: "second", ...base })).rejects.toThrow("already exists");
+    expect(await readFile(join(agentDir("notes", home), "charter.md"), "utf-8")).toBe("first\n");
   });
 
   test("a running session with the same name blocks the start", async () => {
@@ -179,17 +179,17 @@ describe("comb agents", () => {
   test("restart without a charter resumes the agent's own session", async () => {
     const claude = fakeClaude();
     const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
-    const first = await startAgent({ name: "investing", charter: "c", cwd: repo, ...base });
+    const first = await startAgent({ name: "billing", charter: "c", cwd: repo, ...base });
     claude.sessions[0]!.state = "done";
 
-    const second = await startAgent({ name: "investing", ...base });
+    const second = await startAgent({ name: "billing", ...base });
     expect(second.restarted).toBe(true);
     const bg = claude.calls.filter((c) => c.argv[1] === "--bg").at(-1)!;
     expect(bg.cwd).toBe(repo);
     expect(bg.argv).toContain("--resume");
     expect(bg.argv[bg.argv.indexOf("--resume") + 1]).toBe(first.session.sessionId);
     expect(bg.argv.at(-1)).toContain("You were restarted from your workspace.");
-    expect(await readFile(join(agentDir("investing", home), "log.md"), "utf-8")).toContain("resumed by greg");
+    expect(await readFile(join(agentDir("billing", home), "log.md"), "utf-8")).toContain("resumed by greg");
   });
 
   test("a session the daemon retired for idling is listed as done and resumes", async () => {
@@ -300,10 +300,10 @@ describe("comb agents", () => {
   test("send to an asleep agent resumes it with the message and keeps its parent", async () => {
     const claude = fakeClaude();
     const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
-    const first = await startAgent({ name: "revrec", charter: "c", cwd: repo, parent: "maya", ...base });
+    const first = await startAgent({ name: "acme-api", charter: "c", cwd: repo, parent: "maya", ...base });
     claude.sessions[0] = { ...claude.sessions[0]!, kind: "background", state: "blocked", status: undefined };
 
-    const { woke, session } = await sendToAgent({ name: "revrec", message: "take TK-143", from: "maya", ...base });
+    const { woke, session } = await sendToAgent({ name: "acme-api", message: "take TK-143", from: "maya", ...base });
     expect(woke).toBe(true);
     expect(session!.parent).toBe("maya");
     const bg = claude.calls.filter((c) => c.argv[1] === "--bg").at(-1)!;
@@ -320,7 +320,7 @@ describe("comb agents", () => {
   });
 
   test("an agent answers Greg's session that wrote to it, but never hands one work", async () => {
-    const greg = { id: "x", sessionId: "s-g", name: "collegevalue-71", cwd: repo, kind: "interactive", status: "idle", pid: 42 };
+    const greg = { id: "x", sessionId: "s-g", name: "docs-site-71", cwd: repo, kind: "interactive", status: "idle", pid: 42 };
     const claude = fakeClaude([greg]);
     const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
     await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
@@ -328,14 +328,14 @@ describe("comb agents", () => {
     Object.assign(maya, { kind: "background", state: "blocked", status: "idle" });
 
     // Cold: Maya may not route work into Greg's own session.
-    await expect(sendToAgent({ name: "collegevalue-71", message: "drop the at-risk view", from: "maya", ...base }))
+    await expect(sendToAgent({ name: "docs-site-71", message: "drop the at-risk view", from: "maya", ...base }))
       .rejects.toThrow("one of Greg's own sessions, outside the tree");
     expect(claude.calls.some((c) => c.argv[1] === "-p")).toBe(false);
 
     // Once that session writes to Maya, she can answer it.
-    await sendToAgent({ name: "maya", message: "what's waiting?", from: "collegevalue-71", ...base });
-    await sendToAgent({ name: "collegevalue-71", message: "two things", from: "maya", ...base });
-    expect(claude.calls.filter((c) => c.argv[1] === "-p").at(-1)!.stdin).toContain('to "collegevalue-71"');
+    await sendToAgent({ name: "maya", message: "what's waiting?", from: "docs-site-71", ...base });
+    await sendToAgent({ name: "docs-site-71", message: "two things", from: "maya", ...base });
+    expect(claude.calls.filter((c) => c.argv[1] === "-p").at(-1)!.stdin).toContain('to "docs-site-71"');
   });
 
   test("a wake stops a finished session that kept its process, so the name stays unique", async () => {
@@ -387,9 +387,9 @@ describe("comb agents", () => {
     const broken = fakeClaude();
     broken.failIdentity();
     await expect(startAgent({
-      name: "writing", charter: "c", cwd: repo, home, claudeBin: "claude", run: broken.run, wait: noWait,
+      name: "notes", charter: "c", cwd: repo, home, claudeBin: "claude", run: broken.run, wait: noWait,
     })).rejects.toThrow("hive identity emit failed");
-    expect(existsSync(agentDir("writing", home))).toBe(false);
+    expect(existsSync(agentDir("notes", home))).toBe(false);
     expect(broken.calls.some((c) => c.argv[1] === "--bg")).toBe(false);
   });
 
@@ -457,13 +457,13 @@ describe("agentPreamble", () => {
   test("maya keeps the hive identity's name; others are told the name is Maya's", () => {
     const maya = agentPreamble({ name: "maya", dir: "/w", parent: "greg" });
     expect(maya).toContain('You are Maya, as the identity above says, running as the comb agent "maya".');
-    const other = agentPreamble({ name: "revrec", dir: "/w", parent: "maya" });
+    const other = agentPreamble({ name: "acme-api", dir: "/w", parent: "maya" });
     expect(other).toContain("Its name and role are Maya's.");
     expect(other).toContain('Your parent is the agent "maya".');
   });
 
   test("every agent is told it has one job, takes follow-ups, and stays off Greg's sessions", () => {
-    const p = agentPreamble({ name: "revrec-tk109", dir: "/w", parent: "maya" });
+    const p = agentPreamble({ name: "acme-api-tk109", dir: "/w", parent: "maya" });
     expect(p).toContain("with one job: your charter");
     expect(p).toContain("follow-ups and corrections come back to you");
     expect(p).toContain("Greg's own sessions (interactive, in `claude agents`) are outside the tree.");

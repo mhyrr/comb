@@ -9,13 +9,13 @@ let home: string;
 beforeEach(async () => { home = await mkdtemp(join(tmpdir(), "comb-queue-")); });
 afterEach(async () => { await rm(home, { recursive: true, force: true }); });
 
-const base = { kind: "proposal", from: "maya", title: "Start a revrec agent on TK-143", action: "Start revrec on TK-143 and triage the 22 Sobelow findings.", project: "revrec", ticket: "TK-143" };
+const base = { kind: "proposal", from: "maya", title: "Start a acme-api agent on TK-143", action: "Start acme-api on TK-143 and triage the 22 Sobelow findings.", project: "acme-api", ticket: "TK-143" };
 
 test("an item is a readable file that round-trips, one line per field", async () => {
-  const item = await addItem({ ...base, title: "Start a revrec\nagent on TK-143", body: "## Why\n\nCI is red on main." }, home, new Date("2026-11-12T01:00:00Z"));
-  expect(item.id).toBe("2026-11-12-start-a-revrec-agent-on-tk-143");
+  const item = await addItem({ ...base, title: "Start a acme-api\nagent on TK-143", body: "## Why\n\nCI is red on main." }, home, new Date("2026-11-12T01:00:00Z"));
+  expect(item.id).toBe("2026-11-12-start-a-acme-api-agent-on-tk-143");
   const text = await readFile(join(home, "queue", item.id, "item.md"), "utf-8");
-  expect(text).toContain("title: Start a revrec agent on TK-143\n");
+  expect(text).toContain("title: Start a acme-api agent on TK-143\n");
   expect(text).toContain("## Why\n\nCI is red on main.");
   expect(parseItem(text)).toEqual(item);
   expect(parseItem(serializeItem(item))).toEqual(item);
@@ -57,16 +57,16 @@ test("the list holds open items first, then recent answers; stale answers drop o
 
 test("the answer message tells the agent exactly what to do", () => {
   const item = { ...base, id: "x", kind: "proposal" as const, status: "open" as const, created: "", answered: null, note: null, body: "" };
-  expect(answerMessage(item, "go", null)).toBe('Greg approved your proposal "Start a revrec agent on TK-143" (queue item x). Go: Start revrec on TK-143 and triage the 22 Sobelow findings.');
+  expect(answerMessage(item, "go", null)).toBe('Greg approved your proposal "Start a acme-api agent on TK-143" (queue item x). Go: Start acme-api on TK-143 and triage the 22 Sobelow findings.');
   expect(answerMessage(item, "no", "later")).toContain("Do not do it.\n\nHis reason: later");
   expect(answerMessage(item, "redirect", "Do the dependabot batch first.")).toContain("Do this instead: Do the dependabot batch first.");
 });
 
 test("Start on a ticket gives Maya everything she needs and tells her not to come back first", async () => {
   const { startTicketMessage } = await import("../page/server");
-  const m = startTicketMessage("revrec", "TK-143", "Triage Sobelow findings");
-  expect(m).toContain('Start revrec TK-143, "Triage Sobelow findings"');
-  expect(m).toContain("Start a task agent for it in the revrec repo, on its own worktree");
+  const m = startTicketMessage("acme-api", "TK-143", "Triage Sobelow findings");
+  expect(m).toContain('Start acme-api TK-143, "Triage Sobelow findings"');
+  expect(m).toContain("Start a task agent for it in the acme-api repo, on its own worktree");
   expect(m).toContain("Do not come back to Greg first");
   expect(m).toContain("queue_add");
 });

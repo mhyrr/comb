@@ -23,9 +23,9 @@ describe("incoming: who sent a prompt", () => {
   });
 
   test("comb's relay header inside the envelope wins over the relay's own name", () => {
-    const inner = 'Message from revrec. Reply with the comb agent_send tool to "revrec".\n\nTK-143 is green.';
+    const inner = 'Message from acme-api. Reply with the comb agent_send tool to "acme-api".\n\nTK-143 is green.';
     const text = `Another Claude session sent a message:\n<cross-session-message from-name="relay-x9">\n${inner}\n</cross-session-message>`;
-    expect(incoming(text, "greg")).toEqual({ from: "revrec", text: "TK-143 is green." });
+    expect(incoming(text, "greg")).toEqual({ from: "acme-api", text: "TK-143 is green." });
   });
 
   test("the page's signature means Greg, and its note to the agent is dropped", () => {
@@ -168,7 +168,7 @@ describe("snapshot", () => {
 
   test("joins agents with live sessions and splits the rest into Greg's and others", async () => {
     await agent("maya", "greg", "s-maya");
-    await agent("revrec", "maya", "s-rev");
+    await agent("shop", "maya", "s-rev");
     await mkdir(join(claudeHome, "projects", "-w"), { recursive: true });
     await writeFile(join(claudeHome, "projects", "-w", "s-maya.jsonl"),
       assistant([{ type: "tool_use", id: "t", name: "Edit", input: { file_path: "/w/x.ts" } }]) + "\n");
@@ -179,15 +179,15 @@ describe("snapshot", () => {
       live: [
         { id: "1", sessionId: "s-maya", name: "maya", cwd: "/w", kind: "background", status: "busy", state: "working" },
         { id: "0", sessionId: "s-old", name: "maya", cwd: "/w", kind: "background", state: "blocked" },
-        { id: "2", sessionId: "s-greg", name: "revrec-3a", cwd: "/r", kind: "interactive", status: "idle" },
+        { id: "2", sessionId: "s-greg", name: "shop-3a", cwd: "/r", kind: "interactive", status: "idle" },
         { id: "3", sessionId: "s-bg", name: "t1-search", cwd: "/c", kind: "background", status: "busy" },
         { id: "4", sessionId: "s-done", name: "gone", cwd: "/c", kind: "background", state: "done" },
       ],
     });
-    expect(snap.agents.map((a) => [a.name, a.parent, a.activity])).toEqual([["maya", "greg", "working"], ["revrec", "maya", "asleep"]]);
+    expect(snap.agents.map((a) => [a.name, a.parent, a.activity])).toEqual([["maya", "greg", "working"], ["shop", "maya", "asleep"]]);
     expect(snap.agents[0]!.now).toMatchObject({ kind: "tool", tool: "Edit", text: "x.ts" });
     expect(snap.agents[0]!.about).toBe("maya charter");
-    expect(snap.mine.map((s) => [s.name, s.activity])).toEqual([["revrec-3a", "waiting"]]);
+    expect(snap.mine.map((s) => [s.name, s.activity])).toEqual([["shop-3a", "waiting"]]);
     expect(snap.others.map((s) => s.name)).toEqual(["t1-search"]);
   });
 
@@ -277,8 +277,8 @@ describe("the Finished fold (D22)", () => {
 
 describe("parseTicketLine", () => {
   test("reads hive's list_tickets line with tags and blockers", () => {
-    expect(parseTicketLine("revrec", "TK-142  in_progress  P1-high       feature  Rate limiter [api, perf] (blocked by: TK-140, TK-141)")).toEqual({
-      project: "revrec", id: "TK-142", status: "in_progress", priority: 1, type: "feature",
+    expect(parseTicketLine("acme-api", "TK-142  in_progress  P1-high       feature  Rate limiter [api, perf] (blocked by: TK-140, TK-141)")).toEqual({
+      project: "acme-api", id: "TK-142", status: "in_progress", priority: 1, type: "feature",
       title: "Rate limiter", tags: ["api", "perf"], blockedBy: ["TK-140", "TK-141"],
     });
   });
@@ -342,11 +342,11 @@ describe("page service", () => {
 describe("parseMemory", () => {
   test("reads sections, dates and tags, and drops the provenance trail", () => {
     const text = [
-      "# Project Memory: arete",
+      "# Project Memory: mobile-app",
       "",
       "## Durable Facts",
       "- What Arete is (Greg, 2026-11-02): a pathway. [vision, formation]",
-      "- Worktrees branch from HEAD. [subagents, worktrees] _provenance:_ project=arete topRanked[8] [reflection]",
+      "- Worktrees branch from HEAD. [subagents, worktrees] _provenance:_ project=mobile-app topRanked[8] [reflection]",
       "## Decisions",
       "- [2026-11-05] An adult's page lives at /me (TK-034). [auth, routes]",
       "## Open Questions",

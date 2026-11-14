@@ -1,8 +1,7 @@
 /**
  * comb init: create ~/.comb, Maya's workspace, and link comb's skills for
  * Greg's own sessions. Skills are symlinked into ~/.claude/skills from this
- * repo (the same pattern as seodash's contentloop), so there is one copy and
- * edits are live. Nothing that already exists is overwritten.
+ * repo, so there is one copy and edits are live. Nothing that already exists is overwritten.
  */
 import { existsSync, lstatSync, readlinkSync } from "node:fs";
 import { mkdir, readFile, symlink } from "node:fs/promises";
@@ -16,8 +15,15 @@ import { ensureCombScaffold, resolveCombHome } from "./paths";
 /** Skills comb links into Greg's ~/.claude/skills. */
 export const USER_SKILLS = ["comb-handoff"];
 
-export function resolveCombRepo(): string {
-  return process.env.COMB_REPO || join(homedir(), "work", "comb");
+/**
+ * The comb checkout that holds skills/ and templates/: COMB_REPO, else the
+ * current directory when it is a comb checkout (so `comb init` works when run
+ * from a fresh clone), else ~/work/comb.
+ */
+export function resolveCombRepo(cwd: string = process.cwd()): string {
+  if (process.env.COMB_REPO) return process.env.COMB_REPO;
+  if (existsSync(join(cwd, "templates", "maya-charter.md")) && existsSync(join(cwd, "skills"))) return cwd;
+  return join(homedir(), "work", "comb");
 }
 
 export type InitResult = { lines: string[] };

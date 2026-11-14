@@ -50,7 +50,7 @@ Three places, each with one job (agreed 2026-11-11):
   session can start, list and manage agents. The `comb` command stays for
   building and debugging.
 - **Greg addresses agents by name** in his own session: "maya, what's
-  waiting on me in revrec?" His session relays that to Maya with
+  waiting on me in acme-api?" His session relays that to Maya with
   `SendMessage` and brings her answer back.
 - **His session offers hand-offs.** When work can run without Greg and come
   back reviewable, his session offers to hand it to Maya, and packs the
@@ -88,9 +88,9 @@ whom.
 ```
 Greg
  ├─ Maya, chief of staff              (charter: look across everything)
- │   ├─ revrec-tk109-backtest         (charter: build TK-109 step 1, own worktree)
- │   │   └─ revrec-tk109-review       (charter: review the backtest branch)
- │   ├─ collegevalue-show-hn          (charter: draft the Show HN post)
+ │   ├─ acme-api-tk109-backtest         (charter: build TK-109 step 1, own worktree)
+ │   │   └─ acme-api-tk109-review       (charter: review the backtest branch)
+ │   ├─ docs-site-show-hn          (charter: draft the Show HN post)
  │   └─ release-notes                 (charter: this week's notes)
  └─ Greg's own sessions               (outside the tree; on the page, not Maya's)
 ```
@@ -390,7 +390,7 @@ and a briefing. Now comb files them as queue items from Maya (D23).
 - **An attention item becomes a decision.** The title is the item's text;
   the action is that Maya acts on Greg's answer. Go means carry it out as
   written; Redirect carries his answer. The project comes from the bold lead
-  (`**revrec:**`), the ticket from the first `TK-n` in the text.
+  (`**acme-api:**`), the ticket from the first `TK-n` in the text.
 - **Skips, each reported with its reason:** a pick older than 7 days; a pick
   whose ticket is closed or done, or that hive has no file for; anything
   with an open queue item on the same project and ticket (ticket field, or
@@ -480,8 +480,8 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   context is in files (hive memory, tickets, branches, reports), so a
   long-lived project agent would only gather stale turns. The cost is a cold
   start per job, so small things (a memory note, a ticket update) Maya does
-  herself. Found when Maya's queue items named `collegevalue-71`, Greg's own
-  CLI session, as the collegevalue agent.
+  herself. Found when Maya's queue items named `docs-site-71`, Greg's own
+  CLI session, as the docs-site agent.
 - **D22. Finished agents fold; they are never deleted** (2026-11-12, §9.1).
   Greg asked whether old sessions age off. They did not: a finished agent
   keeps its workspace and session so a message wakes it (D17), and the tree

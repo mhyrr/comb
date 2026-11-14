@@ -83,7 +83,7 @@ server.registerTool("queue_add", {
     "file what you can decide yourself.",
   inputSchema: {
     kind: z.enum(["proposal", "decision", "review", "blocker"]),
-    title: z.string().describe("What Greg says yes or no to, in under 80 characters. E.g. 'Start a revrec agent on TK-143'."),
+    title: z.string().describe("What Greg says yes or no to, in under 80 characters. E.g. 'Start an acme-api agent on TK-143'."),
     action: z.string().describe("Exactly what you will do when he says go, in one sentence."),
     why: z.string().describe("Your case in Markdown: why now, your recommendation, the evidence, what it costs."),
     project: z.string().optional().describe("The hive project, if there is one."),
@@ -103,7 +103,7 @@ server.registerTool("agent_start", {
   description:
     "Make a new comb agent: a background Claude Code session with one job, its own workspace and a charter, " +
     "with you as its parent. Use it for a job that should run on its own and report back, not for a quick " +
-    "lookup (use your harness's sub-agents for that). Name it <project>-<job>, e.g. 'revrec-tk109-backtest'. " +
+    "lookup (use your harness's sub-agents for that). Name it <project>-<job>, e.g. 'acme-api-tk109-backtest'. " +
     "The charter carries the context: the ticket, what done means, and where the design docs and memory are. " +
     "Set worktree when it will edit code. For a follow-up on a job that already has an agent, use agent_send.",
   inputSchema: {

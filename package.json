@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Agents that work on Greg's projects, layered on hive",
+  "license": "MIT",
+  "description": "A supervision tree of Claude Code background agents, with a live page and a queue",
   "scripts": {
     "test": "bun test",
     "build": "bun build src/cli.ts --compile --outfile comb-bin && bun build src/mcp-server.ts --compile --outfile comb-mcp"

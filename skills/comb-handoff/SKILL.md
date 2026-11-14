@@ -1,6 +1,6 @@
 ---
 name: comb-handoff
-description: Use when Greg asks about delegated work, his comb agents, or what is waiting on him ("maya, what's waiting on me in revrec?", "what are the agents doing?"), when he hands work off ("give this to maya", "have revrec take this"), or when work in this session could run without him and come back reviewable, so you should offer a hand-off. Relays to the background chief of staff with agent_send.
+description: Use when Greg asks about delegated work, his comb agents, or what is waiting on him ("maya, what's waiting on me in acme-api?", "what are the agents doing?"), when he hands work off ("give this to maya", "have acme-api take this"), or when work in this session could run without him and come back reviewable, so you should offer a hand-off. Relays to the background chief of staff with agent_send.
 ---
 
 # comb hand-off

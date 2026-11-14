@@ -45,37 +45,37 @@ async function briefing(date: string, asks: string[]) {
 
 /** Today's real shape: fresh picks, stale picks, a closed ticket, a missing one, and asks. */
 async function tonight() {
-  await ticket("arete", "TK-042", "open", "Print always uses the light colours");
+  await ticket("mobile-app", "TK-042", "open", "Print always uses the light colours");
   await ticket("dobby", "TK-042");
-  await ticket("seodash", "TK-038", "open", "Add `seodash traffic`");
+  await ticket("web-app", "TK-038", "open", "Add `web-app traffic`");
   await ticket("hive", "TK-120", "closed");
-  await ticket("revrec", "TK-153", "done");
+  await ticket("acme-api", "TK-153", "done");
   await picks([
-    { projectId: "arete", ticketId: "TK-042", selectedAt: daysAgo(0.2) },
+    { projectId: "mobile-app", ticketId: "TK-042", selectedAt: daysAgo(0.2) },
     { projectId: "dobby", ticketId: "TK-042", selectedAt: daysAgo(23) },
-    { projectId: "seodash", ticketId: "TK-038", selectedAt: daysAgo(0.1) },
+    { projectId: "web-app", ticketId: "TK-038", selectedAt: daysAgo(0.1) },
     { projectId: "hive", ticketId: "TK-120", selectedAt: daysAgo(0.2) },
-    { projectId: "revrec", ticketId: "TK-153", selectedAt: daysAgo(0.5) },
+    { projectId: "acme-api", ticketId: "TK-153", selectedAt: daysAgo(0.5) },
     { projectId: "matreas", ticketId: "TK-479", selectedAt: daysAgo(0.2) },
     { projectId: "cohere", ticketId: "TK-010", selectedAt: daysAgo(1), disposition: "rejected" },
   ]);
   await briefing(TODAY, [
     "**Arete:** give the collaborator the Cooking L1–L5 conversion.",
     "**hive:** decide where `attach` lives: keep it in hive,\n   or move it to comb.",
-    "**seodash TK-038:** building it unblocks the collegevalue baseline.",
+    "**web-app TK-038:** building it unblocks the docs-site baseline.",
   ]);
 }
 
 test("fresh picks become proposals from Maya, asks become decisions, and the rest is skipped with a reason", async () => {
   await tonight();
   const r = await runNightly({ home, hiveHome, now: NOW });
-  expect(r.filed.map((f) => f.label)).toEqual(["ask 1", "ask 2", "seodash TK-038", "arete TK-042"]);
+  expect(r.filed.map((f) => f.label)).toEqual(["ask 1", "ask 2", "web-app TK-038", "mobile-app TK-042"]);
   expect(Object.fromEntries(r.skipped.map((s) => [s.label, s.reason]))).toEqual({
     "dobby TK-042": "stale: picked 2026-10-21, 23 days ago",
     "hive TK-120": "ticket is closed",
-    "revrec TK-153": "ticket is done",
+    "acme-api TK-153": "ticket is done",
     "matreas TK-479": "hive has no ticket matreas/TK-479",
-    "ask 3": "covered by hive's pick seodash TK-038",
+    "ask 3": "covered by hive's pick web-app TK-038",
   });
 
   const items = await listItems(home, 0, NOW.getTime());
@@ -83,9 +83,9 @@ test("fresh picks become proposals from Maya, asks become decisions, and the res
   expect(pick).toMatchObject({
     kind: "proposal",
     from: "maya",
-    project: "arete",
-    title: "Start arete TK-042: Print always uses the light colours",
-    action: "Maya starts task agent arete-tk-042 on arete TK-042.",
+    project: "mobile-app",
+    title: "Start mobile-app TK-042: Print always uses the light colours",
+    action: "Maya starts task agent mobile-app-tk-042 on mobile-app TK-042.",
   });
   expect(pick.body).toContain("## hive's rationale\n\nWhy TK-042.");
   const ask = items.find((i) => i.title.startsWith("hive:"))!;
@@ -98,10 +98,10 @@ test("a second run files nothing: each pick and ask is recorded once", async () 
   await runNightly({ home, hiveHome, now: NOW });
   const again = await runNightly({ home, hiveHome, now: new Date(NOW.getTime() + 3600_000) });
   expect(again.filed).toEqual([]);
-  expect(again.skipped.filter((s) => s.reason!.startsWith("already filed")).map((s) => s.label)).toEqual(["seodash TK-038", "arete TK-042", "ask 1", "ask 2"]);
+  expect(again.skipped.filter((s) => s.reason!.startsWith("already filed")).map((s) => s.label)).toEqual(["web-app TK-038", "mobile-app TK-042", "ask 1", "ask 2"]);
   const items = await listItems(home, 0, NOW.getTime());
   expect(items.length).toBe(4);
-  expect(Object.keys(JSON.parse(await readFile(stateFile(home), "utf-8")).filed)).toContain(`pick:arete:TK-042:${daysAgo(0.2)}`);
+  expect(Object.keys(JSON.parse(await readFile(stateFile(home), "utf-8")).filed)).toContain(`pick:mobile-app:TK-042:${daysAgo(0.2)}`);
 
   // Once Greg answers, the item is no longer open, and it is still not refiled.
   for (const i of items) await recordAnswer(i.id, "no", null, home);
@@ -110,15 +110,15 @@ test("a second run files nothing: each pick and ask is recorded once", async () 
 });
 
 test("a re-pick of the same ticket, or a repeated ask, does not come back for a week", async () => {
-  await ticket("arete", "TK-042");
-  await picks([{ projectId: "arete", ticketId: "TK-042", selectedAt: daysAgo(0.3) }]);
+  await ticket("mobile-app", "TK-042");
+  await picks([{ projectId: "mobile-app", ticketId: "TK-042", selectedAt: daysAgo(0.3) }]);
   await briefing(TODAY, ["**Arete:** decide the numbering rule."]);
   const first = await runNightly({ home, hiveHome, now: NOW });
   for (const i of await listItems(home, 0, NOW.getTime())) await recordAnswer(i.id, "no", "Not now.", home);
 
   // hive re-selects the same ticket with a new selectedAt; tomorrow's briefing repeats the ask.
   const tomorrow = new Date(NOW.getTime() + 24 * 3600_000);
-  await picks([{ projectId: "arete", ticketId: "TK-042", selectedAt: new Date(tomorrow.getTime() - 3600_000).toISOString() }]);
+  await picks([{ projectId: "mobile-app", ticketId: "TK-042", selectedAt: new Date(tomorrow.getTime() - 3600_000).toISOString() }]);
   await briefing(localDate(tomorrow), ["**Arete:** decide the numbering rule."]);
   const again = await runNightly({ home, hiveHome, now: tomorrow });
   expect(first.filed.length).toBe(2);
@@ -127,21 +127,21 @@ test("a re-pick of the same ticket, or a repeated ask, does not come back for a 
 
   // After a week, a ticket hive still picks is asked again.
   const later = new Date(NOW.getTime() + 8 * 24 * 3600_000);
-  await picks([{ projectId: "arete", ticketId: "TK-042", selectedAt: new Date(later.getTime() - 3600_000).toISOString() }]);
-  expect((await runNightly({ home, hiveHome, now: later })).filed.map((f) => f.label)).toEqual(["arete TK-042"]);
+  await picks([{ projectId: "mobile-app", ticketId: "TK-042", selectedAt: new Date(later.getTime() - 3600_000).toISOString() }]);
+  expect((await runNightly({ home, hiveHome, now: later })).filed.map((f) => f.label)).toEqual(["mobile-app TK-042"]);
 });
 
 test("an open queue item on the same ticket blocks a pick; the same id in another project does not", async () => {
-  await ticket("arete", "TK-042");
+  await ticket("mobile-app", "TK-042");
   await ticket("dobby", "TK-042");
-  await ticket("revrec", "TK-153");
+  await ticket("acme-api", "TK-153");
   await picks([
-    { projectId: "arete", ticketId: "TK-042", selectedAt: daysAgo(0.1) },
+    { projectId: "mobile-app", ticketId: "TK-042", selectedAt: daysAgo(0.1) },
     { projectId: "dobby", ticketId: "TK-042", selectedAt: daysAgo(0.1) },
-    { projectId: "revrec", ticketId: "TK-153", selectedAt: daysAgo(0.1) },
+    { projectId: "acme-api", ticketId: "TK-153", selectedAt: daysAgo(0.1) },
   ]);
-  await addItem({ kind: "proposal", from: "maya", title: "Fix the dark print (TK-042)", action: "x", project: "arete" }, home);
-  await addItem({ kind: "proposal", from: "maya", title: "Admin PDF download", action: "x", project: "revrec", ticket: "TK-153" }, home);
+  await addItem({ kind: "proposal", from: "maya", title: "Fix the dark print (TK-042)", action: "x", project: "mobile-app" }, home);
+  await addItem({ kind: "proposal", from: "maya", title: "Admin PDF download", action: "x", project: "acme-api", ticket: "TK-153" }, home);
   const r = await runNightly({ home, hiveHome, now: NOW });
   expect(r.filed.map((f) => f.label)).toEqual(["dobby TK-042"]);
   expect(r.skipped.map((s) => s.reason)).toEqual([
@@ -171,16 +171,16 @@ test("the cap gives asks the room; excess picks wait for tomorrow, excess asks d
 });
 
 test("one pick per project a night: a second pick for the same project waits", async () => {
-  await ticket("arete", "TK-042");
-  await ticket("arete", "TK-043");
-  await picks([{ projectId: "arete", ticketId: "TK-042", selectedAt: daysAgo(0.3) }]);
+  await ticket("mobile-app", "TK-042");
+  await ticket("mobile-app", "TK-043");
+  await picks([{ projectId: "mobile-app", ticketId: "TK-042", selectedAt: daysAgo(0.3) }]);
   await runNightly({ home, hiveHome, now: NOW });
-  await picks([{ projectId: "arete", ticketId: "TK-043", selectedAt: daysAgo(0.01) }]);
+  await picks([{ projectId: "mobile-app", ticketId: "TK-043", selectedAt: daysAgo(0.01) }]);
   const r = await runNightly({ home, hiveHome, now: NOW });
   expect(r.filed).toEqual([]);
-  expect(r.skipped[0]).toMatchObject({ label: "arete TK-043", reason: expect.stringContaining("one pick per project") });
+  expect(r.skipped[0]).toMatchObject({ label: "mobile-app TK-043", reason: expect.stringContaining("one pick per project") });
   const next = await runNightly({ home, hiveHome, now: new Date(NOW.getTime() + 24 * 3600_000) });
-  expect(next.filed.map((f) => f.label)).toEqual(["arete TK-043"]);
+  expect(next.filed.map((f) => f.label)).toEqual(["mobile-app TK-043"]);
 });
 
 test("a dry run reports and writes nothing", async () => {
@@ -208,9 +208,9 @@ test("hive readers: a half-written next.json reads as no picks; the attention li
 });
 
 test("an ask names its project from the bold lead and its ticket from anywhere", () => {
-  const projects = ["revrec", "hive", "seodash"];
-  expect(askSubject("**revrec staging v163.** Load it yourself.", projects)).toEqual({ project: "revrec", ticket: null });
+  const projects = ["acme-api", "hive", "web-app"];
+  expect(askSubject("**acme-api staging v163.** Load it yourself.", projects)).toEqual({ project: "acme-api", ticket: null });
   expect(askSubject("**Merge hive PR #41** and unload it.", projects)).toEqual({ project: "hive", ticket: null });
-  expect(askSubject("**revrec:** schedule the A/B for TK-150.", projects)).toEqual({ project: "revrec", ticket: "TK-150" });
+  expect(askSubject("**acme-api:** schedule the A/B for TK-150.", projects)).toEqual({ project: "acme-api", ticket: "TK-150" });
   expect(askSubject("**Candidate A.** Let Maya measure it.", projects)).toEqual({ project: null, ticket: null });
 });

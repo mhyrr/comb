@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { combInit } from "../init";
+import { combInit, resolveCombRepo } from "../init";
 import { startAgent } from "../agents";
 import type { Run } from "../claude";
 
@@ -77,4 +77,25 @@ test("init puts Maya on Opus, and leaves a model Greg chose alone", async () => 
   await writeFile(settings, JSON.stringify({ model: "sonnet" }));
   expect((await combInit(opts)).lines).toContain("maya: model sonnet");
   expect(JSON.parse(await readFile(settings, "utf-8"))).toEqual({ model: "sonnet" });
+});
+
+test("resolveCombRepo: COMB_REPO, then a comb checkout in cwd, then ~/work/comb", async () => {
+  const saved = process.env.COMB_REPO;
+  delete process.env.COMB_REPO;
+  const clone = await mkdtemp(join(tmpdir(), "comb-clone-"));
+  const elsewhere = await mkdtemp(join(tmpdir(), "comb-elsewhere-"));
+  try {
+    await mkdir(join(clone, "skills"), { recursive: true });
+    await mkdir(join(clone, "templates"), { recursive: true });
+    await writeFile(join(clone, "templates", "maya-charter.md"), "# Maya\n");
+    expect(resolveCombRepo(clone)).toBe(clone);
+    expect(resolveCombRepo(elsewhere)).toEndWith(join("work", "comb"));
+    process.env.COMB_REPO = "/opt/comb";
+    expect(resolveCombRepo(clone)).toBe("/opt/comb");
+  } finally {
+    if (saved === undefined) delete process.env.COMB_REPO;
+    else process.env.COMB_REPO = saved;
+    await rm(clone, { recursive: true, force: true });
+    await rm(elsewhere, { recursive: true, force: true });
+  }
 });
