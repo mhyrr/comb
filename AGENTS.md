@@ -35,6 +35,8 @@ comb is the work layer on top of hive. Read `docs/design.md` first.
   `state.ts` the tree snapshot, `feed.ts` the transcript tail, `ui/` the
   browser code (plain TypeScript, bundled into the binary by Bun).
 - `src/paths.ts`: `~/.comb`.
+- `src/config.ts`: `~/.comb/config.json` (`userName`, the page's name for the
+  human; default "You"). Display only: the internal id stays `greg`.
 - `scripts/fixture/`: an invented comb world for the README screenshots
   (`build.ts`, `serve.ts`, a fake `claude` and a fake hive MCP server).
   Regenerate `docs/img/` from it, never from a real `~/.comb`.

@@ -79,6 +79,18 @@ test("init puts Maya on Opus, and leaves a model Greg chose alone", async () => 
   expect(JSON.parse(await readFile(settings, "utf-8"))).toEqual({ model: "sonnet" });
 });
 
+test("init reports the user name and never writes config.json", async () => {
+  const fresh = await combInit(opts);
+  expect(fresh.lines).toContain(`user name: You (set "userName" in ${join(opts.home, "config.json")} to change it)`);
+  expect(existsSync(join(opts.home, "config.json"))).toBe(false);
+
+  const mine = JSON.stringify({ userName: "Greg", other: 1 }, null, 2) + "\n";
+  await writeFile(join(opts.home, "config.json"), mine);
+  const again = await combInit(opts);
+  expect(again.lines.some((l) => l.startsWith("user name: Greg "))).toBe(true);
+  expect(await readFile(join(opts.home, "config.json"), "utf-8")).toBe(mine);
+});
+
 test("resolveCombRepo: COMB_REPO, then a comb checkout in cwd, then ~/work/comb", async () => {
   const saved = process.env.COMB_REPO;
   delete process.env.COMB_REPO;

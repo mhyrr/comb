@@ -50,6 +50,15 @@ reloads the page onto the new binary.
 `COMB_HOME` moves comb's state out of `~/.comb`. `COMB_REPO` points
 `comb init` at the clone if you run it from somewhere else.
 
+The page calls you "You". To use your name, put it in `~/.comb/config.json`:
+
+```json
+{ "userName": "Ada" }
+```
+
+The page picks the change up within a few seconds. `comb init` never writes
+this file.
+
 ## Quick start
 
 You rarely run `comb` yourself. Your Claude sessions use the comb MCP tools.

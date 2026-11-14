@@ -35,7 +35,7 @@ plainer than yours.
 | Nightly picks and briefing asks into the queue (D23) | `src/nightly.ts` | Already a no-op: missing files read as none |
 | `hive attach <name>` on the page chip and in Open in terminal | `src/terminal.ts`, `src/page/ui/app.ts:937` | Falls back to `claude attach <name>`, which can match the wrong session |
 | `hive attach` itself lives in hive and reads `~/.comb` | `hive/src/commands/attach.ts` | n/a. **This breaks D10's rule**: hive now knows comb exists |
-| "Greg" and "Maya" are hard-coded: the `greg` parent, the page's root row, the message signature, the skill and charter text | `GREG` in `src/agents.ts`, `src/page/ui/app.ts:373`, `src/transcript.ts:24` | A stranger's page says "Greg" |
+| "Greg" and "Maya" in text: the message signature agents read, the preamble, the skill and charter text. (**Done:** the page's name for the human comes from `userName` in `~/.comb/config.json`, default "You". The internal id stays `greg`.) | `src/transcript.ts:24`, `agentPreamble`, `skills/`, `templates/` | Agents read "Greg, on the comb page:" and Greg's name in their instructions |
 
 Couplings that are not hive but matter for strangers: macOS only (launchd
 for the page, Terminal.app or Rex for Open in terminal), Bun to build, and
@@ -74,7 +74,12 @@ Claude Code 2.1.319 or later for `--bg` and `claude agents --json`.
      hive's command can stay as an alias that calls comb, or go. This
      restores D10.
   5. The user's name and the chief of staff's name from comb's own config
-     (default "you" and "maya"), not `GREG` and literals.
+     (default "you" and "maya"), not `GREG` and literals. **Partly done
+     (2026-11-14):** the page reads `userName` from `~/.comb/config.json`
+     (`src/config.ts`) and defaults to "You". The id `greg` stays, so stored
+     state needs no migration. Left: the chief of staff's name, the
+     signature on page messages, and the name in the preamble, skill and
+     Maya's charter.
 - **Greg loses:** almost nothing at runtime; his setup is the hive adapter
   on. He pays a second code path (with and without hive) in tests, and one
   more file to tune (the default identity).
@@ -82,7 +87,8 @@ Claude Code 2.1.319 or later for `--bg` and `claude agents --json`.
 ### (c) as it is
 
 - **A stranger gets:** a README that says "install hive first". Then the
-  full system, but with Greg's name on the page and hive's Maya persona.
+  full system, but with Greg's name in agents' instructions and hive's Maya
+  persona.
   Without hive, nothing.
 - **Cost to build:** none.
 - **Greg loses:** most of the audience. Few people will install two

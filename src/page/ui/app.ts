@@ -74,7 +74,9 @@ function setCell(svg: Element | null, activity: Activity) {
 
 const WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
 const count = (n: number) => WORDS[n] ?? String(n);
-const who = (name: string) => (name === "greg" ? "Greg" : name === "maya" ? "Maya" : name);
+/** "greg" is the human's internal id (GREG in agents.ts); the page shows the configured name. */
+const userName = () => snap?.user.name ?? "You";
+const who = (name: string) => (name === "greg" ? userName() : name === "maya" ? "Maya" : name);
 /** What a prompt from comb or the harness did, in a few words. */
 function combNote(text: string, her = false): string {
   if (text.startsWith("You were restarted")) return `Restarted from ${her ? "her" : "its"} workspace`;
@@ -370,7 +372,7 @@ function renderPulse() {
 const rail = $("rail");
 rail.innerHTML = `
   <h2>Agents</h2>
-  <div class="root-row"><span class="you">G</span>Greg</div>
+  <div class="root-row" id="root-row" hidden><span class="you" id="root-initial"></span><span id="root-name"></span></div>
   <ul id="tree"></ul>
   <button class="fold" id="tree-fold" type="button" hidden></button>
   <ul id="tree-finished" class="finished" hidden></ul>
@@ -457,6 +459,9 @@ function treeOrder(agents: AgentNode[]): { node: AgentNode; depth: number }[] {
 
 function renderRail() {
   if (!snap) return;
+  $("root-initial").textContent = snap.user.initial;
+  $("root-name").textContent = snap.user.name;
+  $("root-row").hidden = false; // hidden until the first snapshot names the human
   const cur = (n: AgentNode | SessionNode) =>
     "kind" in n ? route.view === "session" && route.id === n.sessionId : route.view === "agent" && route.name === n.name;
 

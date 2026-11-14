@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { createWorkspace, agentDir, readAgentSettings, writeAgentSettings } from "./agents";
+import { configPath, readCombConfig } from "./config";
 import { UsageError } from "./errors";
 import { ensureCombScaffold, resolveCombHome } from "./paths";
 
@@ -63,6 +64,10 @@ export async function combInit(opts: {
   } else {
     lines.push(`maya: model ${mayaSettings.model}`);
   }
+
+  // Read only: init never writes config.json, so an existing install keeps its name.
+  const config = readCombConfig(home, (msg) => lines.push(`config: ${msg}`));
+  lines.push(`user name: ${config.userName} (set "userName" in ${configPath(home)} to change it)`);
 
   await mkdir(skillsDir, { recursive: true });
   for (const name of USER_SKILLS) {

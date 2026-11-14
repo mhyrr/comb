@@ -22,6 +22,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { readCombConfig } from "../config";
 import { agentDir, GREG, readAgentSession, sendToAgent, validateAgentName } from "../agents";
 import { findClaudeBin, listLiveSessions, runProcess, type LiveSession, type Run } from "../claude";
 import { HiveClient, listHiveProjects, type Ticket } from "../hive";
@@ -67,6 +68,8 @@ export function startPage(opts: PageOpts = {}) {
   const rexBin = opts.rexBin !== undefined ? opts.rexBin : findRexBin();
   const hiveBin = opts.hiveBin !== undefined ? opts.hiveBin : findHiveBin();
   const enc = new TextEncoder();
+  // Snapshots read config.json quietly every poll; say once, at start, if it is broken.
+  readCombConfig(home, (msg) => console.error(`comb page: ${msg}`));
 
   // --- live state ----------------------------------------------------------
   let live: LiveSession[] = [];

@@ -9,6 +9,7 @@ import { join } from "node:path";
 
 import { agentDir, GREG, readAgentSession, type AgentSession } from "../agents";
 import { isEnded, type LiveSession } from "../claude";
+import { readCombConfig, userLabel, type UserLabel } from "../config";
 import { projectForDir } from "../hive";
 import { listItems, type QueueItem } from "../queue";
 import { parseLines, settle, transcriptPath, type FeedEvent } from "../transcript";
@@ -57,6 +58,8 @@ export type SessionNode = {
 
 export type Snapshot = {
   at: string;
+  /** How the page names the human (id "greg"), from config.json; read each build, so an edit shows up live. */
+  user: UserLabel;
   agents: AgentNode[];
   /** Greg's own interactive sessions. */
   mine: SessionNode[];
@@ -148,7 +151,8 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
   others.sort(recent);
 
   const queue = await listItems(home).catch(() => []);
-  return { at: new Date().toISOString(), agents, mine, others, queue, error: opts.liveError ?? null };
+  const user = userLabel(readCombConfig(home));
+  return { at: new Date().toISOString(), user, agents, mine, others, queue, error: opts.liveError ?? null };
 }
 
 /** How long a finished agent or Greg's idle session stays in the main list. */
