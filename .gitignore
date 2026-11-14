@@ -3,3 +3,4 @@ node_modules/
 /comb-mcp
 *.bun-build
 /.claude/worktrees/
+/.playwright-mcp/
