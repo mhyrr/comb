@@ -345,20 +345,20 @@ describe("parseMemory", () => {
       "# Project Memory: mobile-app",
       "",
       "## Durable Facts",
-      "- What Arete is (Greg, 2026-11-02): a pathway. [vision, formation]",
+      "- The app targets iOS 17 and later. [platform, ios]",
       "- Worktrees branch from HEAD. [subagents, worktrees] _provenance:_ project=mobile-app topRanked[8] [reflection]",
       "## Decisions",
-      "- [2026-11-05] An adult's page lives at /me (TK-034). [auth, routes]",
+      "- [2026-11-05] A signed-in user.s page lives at /me (TK-034). [auth, routes]",
       "## Open Questions",
-      "- Who draws the illustrations?",
+      "- Who owns the app store listing?",
       "## Something Else",
       "- ignored",
     ].join("\n");
     expect(parseMemory(text)).toEqual([
-      { section: "facts", date: null, text: "What Arete is (Greg, 2026-11-02): a pathway.", tags: ["vision", "formation"] },
+      { section: "facts", date: null, text: "The app targets iOS 17 and later.", tags: ["platform", "ios"] },
       { section: "facts", date: null, text: "Worktrees branch from HEAD.", tags: ["subagents", "worktrees"] },
-      { section: "decisions", date: "2026-11-05", text: "An adult's page lives at /me (TK-034).", tags: ["auth", "routes"] },
-      { section: "questions", date: null, text: "Who draws the illustrations?", tags: [] },
+      { section: "decisions", date: "2026-11-05", text: "A signed-in user.s page lives at /me (TK-034).", tags: ["auth", "routes"] },
+      { section: "questions", date: null, text: "Who owns the app store listing?", tags: [] },
     ]);
   });
 });

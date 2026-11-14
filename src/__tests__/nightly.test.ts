@@ -45,22 +45,22 @@ async function briefing(date: string, asks: string[]) {
 
 /** Today's real shape: fresh picks, stale picks, a closed ticket, a missing one, and asks. */
 async function tonight() {
-  await ticket("mobile-app", "TK-042", "open", "Print always uses the light colours");
-  await ticket("dobby", "TK-042");
+  await ticket("mobile-app", "TK-042", "open", "Export ignores the dark theme");
+  await ticket("cli-tool", "TK-042");
   await ticket("web-app", "TK-038", "open", "Add `web-app traffic`");
   await ticket("hive", "TK-120", "closed");
   await ticket("acme-api", "TK-153", "done");
   await picks([
     { projectId: "mobile-app", ticketId: "TK-042", selectedAt: daysAgo(0.2) },
-    { projectId: "dobby", ticketId: "TK-042", selectedAt: daysAgo(23) },
+    { projectId: "cli-tool", ticketId: "TK-042", selectedAt: daysAgo(23) },
     { projectId: "web-app", ticketId: "TK-038", selectedAt: daysAgo(0.1) },
     { projectId: "hive", ticketId: "TK-120", selectedAt: daysAgo(0.2) },
     { projectId: "acme-api", ticketId: "TK-153", selectedAt: daysAgo(0.5) },
-    { projectId: "matreas", ticketId: "TK-479", selectedAt: daysAgo(0.2) },
-    { projectId: "cohere", ticketId: "TK-010", selectedAt: daysAgo(1), disposition: "rejected" },
+    { projectId: "shop-api", ticketId: "TK-479", selectedAt: daysAgo(0.2) },
+    { projectId: "billing-svc", ticketId: "TK-010", selectedAt: daysAgo(1), disposition: "rejected" },
   ]);
   await briefing(TODAY, [
-    "**Arete:** give the collaborator the Cooking L1–L5 conversion.",
+    "**mobile-app:** send the designer the new onboarding screens.",
     "**hive:** decide where `attach` lives: keep it in hive,\n   or move it to comb.",
     "**web-app TK-038:** building it unblocks the docs-site baseline.",
   ]);
@@ -71,10 +71,10 @@ test("fresh picks become proposals from Maya, asks become decisions, and the res
   const r = await runNightly({ home, hiveHome, now: NOW });
   expect(r.filed.map((f) => f.label)).toEqual(["ask 1", "ask 2", "web-app TK-038", "mobile-app TK-042"]);
   expect(Object.fromEntries(r.skipped.map((s) => [s.label, s.reason]))).toEqual({
-    "dobby TK-042": "stale: picked 2026-10-21, 23 days ago",
+    "cli-tool TK-042": "stale: picked 2026-10-21, 23 days ago",
     "hive TK-120": "ticket is closed",
     "acme-api TK-153": "ticket is done",
-    "matreas TK-479": "hive has no ticket matreas/TK-479",
+    "shop-api TK-479": "hive has no ticket shop-api/TK-479",
     "ask 3": "covered by hive's pick web-app TK-038",
   });
 
@@ -84,7 +84,7 @@ test("fresh picks become proposals from Maya, asks become decisions, and the res
     kind: "proposal",
     from: "maya",
     project: "mobile-app",
-    title: "Start mobile-app TK-042: Print always uses the light colours",
+    title: "Start mobile-app TK-042: Export ignores the dark theme",
     action: "Maya starts task agent mobile-app-tk-042 on mobile-app TK-042.",
   });
   expect(pick.body).toContain("## hive's rationale\n\nWhy TK-042.");
@@ -112,14 +112,14 @@ test("a second run files nothing: each pick and ask is recorded once", async () 
 test("a re-pick of the same ticket, or a repeated ask, does not come back for a week", async () => {
   await ticket("mobile-app", "TK-042");
   await picks([{ projectId: "mobile-app", ticketId: "TK-042", selectedAt: daysAgo(0.3) }]);
-  await briefing(TODAY, ["**Arete:** decide the numbering rule."]);
+  await briefing(TODAY, ["**mobile-app:** decide the release version scheme."]);
   const first = await runNightly({ home, hiveHome, now: NOW });
   for (const i of await listItems(home, 0, NOW.getTime())) await recordAnswer(i.id, "no", "Not now.", home);
 
   // hive re-selects the same ticket with a new selectedAt; tomorrow's briefing repeats the ask.
   const tomorrow = new Date(NOW.getTime() + 24 * 3600_000);
   await picks([{ projectId: "mobile-app", ticketId: "TK-042", selectedAt: new Date(tomorrow.getTime() - 3600_000).toISOString() }]);
-  await briefing(localDate(tomorrow), ["**Arete:** decide the numbering rule."]);
+  await briefing(localDate(tomorrow), ["**mobile-app:** decide the release version scheme."]);
   const again = await runNightly({ home, hiveHome, now: tomorrow });
   expect(first.filed.length).toBe(2);
   expect(again.filed).toEqual([]);
@@ -133,17 +133,17 @@ test("a re-pick of the same ticket, or a repeated ask, does not come back for a 
 
 test("an open queue item on the same ticket blocks a pick; the same id in another project does not", async () => {
   await ticket("mobile-app", "TK-042");
-  await ticket("dobby", "TK-042");
+  await ticket("cli-tool", "TK-042");
   await ticket("acme-api", "TK-153");
   await picks([
     { projectId: "mobile-app", ticketId: "TK-042", selectedAt: daysAgo(0.1) },
-    { projectId: "dobby", ticketId: "TK-042", selectedAt: daysAgo(0.1) },
+    { projectId: "cli-tool", ticketId: "TK-042", selectedAt: daysAgo(0.1) },
     { projectId: "acme-api", ticketId: "TK-153", selectedAt: daysAgo(0.1) },
   ]);
   await addItem({ kind: "proposal", from: "maya", title: "Fix the dark print (TK-042)", action: "x", project: "mobile-app" }, home);
   await addItem({ kind: "proposal", from: "maya", title: "Admin PDF download", action: "x", project: "acme-api", ticket: "TK-153" }, home);
   const r = await runNightly({ home, hiveHome, now: NOW });
-  expect(r.filed.map((f) => f.label)).toEqual(["dobby TK-042"]);
+  expect(r.filed.map((f) => f.label)).toEqual(["cli-tool TK-042"]);
   expect(r.skipped.map((s) => s.reason)).toEqual([
     expect.stringMatching(/^already open in the queue: .*fix-the-dark-print/),
     expect.stringMatching(/^already open in the queue: .*admin-pdf-download/),

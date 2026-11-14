@@ -220,10 +220,10 @@ describe("comb agents", () => {
     const claude = fakeClaude();
     claude.failBg(() => ({ code: 1, stdout: "Workspace not trusted. Run `claude` in /x once ...\n", stderr: "" }));
     await expect(startAgent({
-      name: "matreas", charter: "c", cwd: repo, home, claudeBin: "claude", run: claude.run, wait: noWait,
+      name: "shop-api", charter: "c", cwd: repo, home, claudeBin: "claude", run: claude.run, wait: noWait,
     })).rejects.toThrow("Claude has not trusted");
     // Nothing left behind, so the same start can be retried.
-    expect(existsSync(agentDir("matreas", home))).toBe(false);
+    expect(existsSync(agentDir("shop-api", home))).toBe(false);
   });
 
   test("a session that fails at start is reported, not waited on", async () => {
@@ -233,10 +233,10 @@ describe("comb agents", () => {
       return { code: 0, stdout: `backgrounded · ${id} · ${name}\n`, stderr: "" };
     });
     await expect(startAgent({
-      name: "matreas", charter: "c", cwd: repo, home, claudeBin: "claude", run: claude.run, wait: noWait,
+      name: "shop-api", charter: "c", cwd: repo, home, claudeBin: "claude", run: claude.run, wait: noWait,
     })).rejects.toThrow("failed at start");
     expect(claude.calls.filter((c) => c.argv[1] === "agents" && c.argv.includes("--all"))).toHaveLength(1);
-    expect(existsSync(agentDir("matreas", home))).toBe(false);
+    expect(existsSync(agentDir("shop-api", home))).toBe(false);
   });
 
   test("the prompt never directly follows --mcp-config", () => {
