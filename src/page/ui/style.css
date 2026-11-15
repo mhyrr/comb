@@ -270,6 +270,16 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 .quiet a { color: var(--graphite); text-underline-offset: 3px; text-decoration-thickness: 1px; }
 .quiet a:hover { color: var(--ink); }
 
+/* The page holds the reader's place itself (patch.ts), in every browser. */
+.stage-scroll:has(> .dash) { overflow-anchor: none; }
+.qnew {
+  position: sticky; top: 10px; z-index: 2; display: block; margin: 0 auto 12px;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--pane);
+  border-radius: 999px; padding: 6px 16px; font-weight: 600; font-size: var(--t-sm);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.12);
+}
+.qnew[hidden] { display: none; }
+.qnew:hover { opacity: 0.88; }
 .qcard {
   position: relative;
   background: var(--sunk); border: 1px solid var(--hair); border-radius: 16px;

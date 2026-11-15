@@ -8,6 +8,7 @@ import type { QueueItem } from "../../queue";
 import type { FeedEvent } from "../../transcript";
 import type { Activity, AgentNode, Now, SessionNode, Snapshot } from "../state";
 import { esc, md as markdown } from "./md";
+import { admit, holdingPlace, patchList, setHtml } from "./patch";
 
 /** Markdown, with "[Screenshot: …/inbox/<file>]" shown as the image itself. */
 function md(text: string): string {
@@ -671,10 +672,32 @@ const startState = new Map<string, "busy" | "sent" | string>();
 
 function setSection(id: string, html: string) {
   const el = document.getElementById(id);
-  if (el && el.dataset.html !== html) {
-    el.dataset.html = html;
-    el.innerHTML = html;
-  }
+  if (el) setHtml(el, html);
+}
+
+const kindName: Record<string, string> = { proposal: "Proposal", decision: "Decision", review: "Ready for review", blocker: "Blocked" };
+const verdict: Record<string, string> = { approved: "Go", declined: "Not now", redirected: "Redirected" };
+/** Queue items on screen. Ones that arrive while Greg is busy with the queue wait behind the pill (D26). */
+let qShown = new Set<string>();
+let qWaiting = 0;
+/** Set by the pill: show every waiting item on the next render. */
+let qRelease = false;
+
+function dashScroller(): HTMLElement | null {
+  return document.getElementById("dash")?.closest<HTMLElement>(".stage-scroll") ?? null;
+}
+
+/**
+ * Greg is busy with the queue: something in it has focus, a note form or a
+ * case is open, an answer is in flight, or he has scrolled past its top.
+ */
+function queueBusy(): boolean {
+  const q = document.getElementById("now-queue");
+  if (!q) return false;
+  if (q.contains(document.activeElement)) return true;
+  if ([...qState.values()].some((s) => s.mode || s.more || s.busy)) return true;
+  const scroller = dashScroller();
+  return !!scroller && q.getBoundingClientRect().top < scroller.getBoundingClientRect().top - 1;
 }
 
 function renderNow() {
@@ -683,11 +706,17 @@ function renderNow() {
     return;
   }
   if (!document.getElementById("dash")) {
+    qShown = new Set();
     stage.innerHTML = `<div class="stage-scroll"><div class="stage-inner dash" id="dash">
       <header class="now-top" id="now-top"></header>
       <div class="dash-grid">
         <div class="dash-main">
-          <section class="now-section" id="now-queue"></section>
+          <section class="now-section" id="now-queue">
+            <h2 id="q-head"></h2>
+            <button type="button" class="qnew" id="q-new" data-qa="shownew" hidden></button>
+            <div id="q-cards"></div>
+            <div id="q-rest"></div>
+          </section>
           <section class="now-section" id="now-live"></section>
           <section class="now-section" id="now-notes"></section>
         </div>
@@ -696,6 +725,10 @@ function renderNow() {
           <section class="now-section" id="now-reports"></section>
         </aside>
       </div></div></div>`;
+    // Back at the top with nothing in hand: let waiting items in.
+    dashScroller()?.addEventListener("scroll", () => { if (qWaiting && !queueBusy()) renderNow(); }, { passive: true });
+    // Letting go of the queue (blur, closing a form) is the other quiet moment.
+    $("now-queue").addEventListener("focusout", () => setTimeout(() => { if (qWaiting && !queueBusy()) renderNow(); }, 0));
   }
   const open = snap.queue.filter((q) => q.status === "open");
   const answered = snap.queue.filter((q) => q.status !== "open");
@@ -712,45 +745,64 @@ function renderNow() {
     answered.length ? `You answered ${answered.length} today.` : "",
     !open.length && !working.length ? "Start a ticket below, or message Maya." : "",
   ].filter(Boolean).join(" ");
-  setSection("now-top", `<h1 class="now-head">${esc(head)}</h1><p class="now-sub">${esc(sub)}</p>`);
+  const release = qRelease;
+  qRelease = false;
+  const { show, waiting } = admit(open.map((q) => q.id), qShown, !release && queueBusy());
+  qShown = new Set(show);
+  qWaiting = waiting.length;
+  const byId = new Map(open.map((q) => [q.id, q]));
 
-  setSection("now-queue", queueHtml(open, answered));
-  setSection("now-live", working.length ? `<h2>Working now</h2>${working.map(liveItem).join("")}` : "");
-  setSection("now-notes", notesHtml(nodes));
+  const draw = () => {
+    setSection("now-top", `<h1 class="now-head">${esc(head)}</h1><p class="now-sub">${esc(sub)}</p>`);
+    setSection("q-head", `Waiting on you${open.length ? ` <span>${open.length}</span>` : ""}`);
+    $("q-new").hidden = !waiting.length;
+    if (waiting.length) setSection("q-new", `${count(waiting.length)} new, show`);
+    patchList($("q-cards"), show.map((id) => ({ key: id, html: queueCard(byId.get(id)!) })));
+    setSection("q-rest", queueRest(open.length, answered));
+    setSection("now-live", working.length ? `<h2>Working now</h2>${working.map(liveItem).join("")}` : "");
+    setSection("now-notes", notesHtml(nodes));
+  };
+  if (release) {
+    draw();
+    $("q-head").scrollIntoView({ block: "start", behavior: "smooth" });
+  } else {
+    // Rows above the reader may come and go; the one in view stays put.
+    holdingPlace(dashScroller(), () => Array.from(document.querySelectorAll<HTMLElement>(
+      "#now-top, #q-head, #q-cards > .qcard, #q-rest li, #now-live > *, #now-notes > *")), draw);
+  }
   void fillTickets();
   void fillReports();
 }
 
-function queueHtml(open: QueueItem[], answered: QueueItem[]): string {
-  if (!open.length && !answered.length) {
-    return `<h2>Waiting on you</h2><p class="quiet">Nothing. When an agent needs your yes, it lands here with its case and one-click answers.</p>`;
+function queueCard(q: QueueItem): string {
+  const s = qState.get(q.id) ?? {};
+  const k = (part: string) => `data-keep="${esc(`${q.id}:${part}`)}"`;
+  const where = [q.project, q.ticket].filter(Boolean).join(" ");
+  const form = s.mode
+    ? `<form class="qnote" data-q="${esc(q.id)}" data-mode="${s.mode}">
+        <textarea rows="2" ${k("note")} placeholder="${s.mode === "redirect" ? "What should it do instead?" : "Why not, if it helps it learn (optional)"}">${esc(s.text ?? "")}</textarea>
+        <div><button type="submit" class="primary" ${k("send")}${s.busy ? " disabled" : ""}>${s.mode === "redirect" ? "Send redirect" : "Say not now"}</button><button type="button" data-qa="cancel" ${k("cancel")}>Cancel</button></div></form>`
+    : "";
+  return `<article class="qcard kind-${q.kind}" data-q="${esc(q.id)}">
+    <div class="qmeta"><span class="qkind">${esc(kindName[q.kind] ?? q.kind)}</span><span>from <b>${esc(who(q.from))}</b></span>${where ? `<span>${esc(where)}</span>` : ""}${agoTag(q.created, true)}</div>
+    <h3>${esc(q.title)}</h3>
+    <p class="qaction"><span>On go</span>${esc(q.action)}</p>
+    ${q.body ? (q.body.length > 180 || q.body.includes("\n")
+      ? `<div class="qbody prose${s.more ? " open" : ""}">${md(q.body)}</div><button type="button" class="qmore" data-qa="more" ${k("more")}>${s.more ? "Less" : "Read the case"}</button>`
+      : `<div class="qbody prose open">${md(q.body)}</div>`) : ""}
+    ${form || `<div class="qbtns">
+      <button type="button" class="go" data-qa="go" ${k("go")}${s.busy ? " disabled" : ""}>${s.busy ? "Sending…" : "Go"}</button>
+      <button type="button" data-qa="no" ${k("no")}${s.busy ? " disabled" : ""}>Not now</button>
+      <button type="button" data-qa="redirect" ${k("redirect")}${s.busy ? " disabled" : ""}>Redirect</button></div>`}
+    ${s.error ? `<p class="problem">${esc(s.error)}</p>` : ""}
+  </article>`;
+}
+
+function queueRest(openCount: number, answered: QueueItem[]): string {
+  if (!openCount && !answered.length) {
+    return `<p class="quiet">Nothing. When an agent needs your yes, it lands here with its case and one-click answers.</p>`;
   }
-  const kindName: Record<string, string> = { proposal: "Proposal", decision: "Decision", review: "Ready for review", blocker: "Blocked" };
-  const card = (q: QueueItem) => {
-    const s = qState.get(q.id) ?? {};
-    const where = [q.project, q.ticket].filter(Boolean).join(" ");
-    const form = s.mode
-      ? `<form class="qnote" data-q="${esc(q.id)}" data-mode="${s.mode}">
-          <textarea rows="2" placeholder="${s.mode === "redirect" ? "What should it do instead?" : "Why not, if it helps it learn (optional)"}">${esc(s.text ?? "")}</textarea>
-          <div><button type="submit" class="primary"${s.busy ? " disabled" : ""}>${s.mode === "redirect" ? "Send redirect" : "Say not now"}</button><button type="button" data-qa="cancel">Cancel</button></div></form>`
-      : "";
-    return `<article class="qcard kind-${q.kind}" data-q="${esc(q.id)}">
-      <div class="qmeta"><span class="qkind">${esc(kindName[q.kind] ?? q.kind)}</span><span>from <b>${esc(who(q.from))}</b></span>${where ? `<span>${esc(where)}</span>` : ""}${agoTag(q.created, true)}</div>
-      <h3>${esc(q.title)}</h3>
-      <p class="qaction"><span>On go</span>${esc(q.action)}</p>
-      ${q.body ? (q.body.length > 180 || q.body.includes("\n")
-        ? `<div class="qbody prose${s.more ? " open" : ""}">${md(q.body)}</div><button type="button" class="qmore" data-qa="more">${s.more ? "Less" : "Read the case"}</button>`
-        : `<div class="qbody prose open">${md(q.body)}</div>`) : ""}
-      ${form || `<div class="qbtns">
-        <button type="button" class="go" data-qa="go"${s.busy ? " disabled" : ""}>${s.busy ? "Sending…" : "Go"}</button>
-        <button type="button" data-qa="no"${s.busy ? " disabled" : ""}>Not now</button>
-        <button type="button" data-qa="redirect"${s.busy ? " disabled" : ""}>Redirect</button></div>`}
-      ${s.error ? `<p class="problem">${esc(s.error)}</p>` : ""}
-    </article>`;
-  };
-  const verdict: Record<string, string> = { approved: "Go", declined: "Not now", redirected: "Redirected" };
-  return `<h2>Waiting on you${open.length ? ` <span>${open.length}</span>` : ""}</h2>
-    ${open.map(card).join("") || `<p class="quiet">All answered.</p>`}
+  return `${openCount ? "" : `<p class="quiet">All answered.</p>`}
     ${answered.length ? `<ul class="answered">${answered.map((q) =>
       `<li><span class="v v-${q.status}">${verdict[q.status]}</span><span class="t">${esc(q.title)}</span><span class="w">${esc(who(q.from))} ${agoTag(q.answered, true)}</span></li>`).join("")}</ul>` : ""}`;
 }
@@ -862,13 +914,19 @@ stage.addEventListener("click", (e) => {
   const pt = t.closest<HTMLElement>(".pt-main");
   if (pt) { void openTicket(pt.dataset.project!, pt.dataset.id!); return; }
   const qa = t.closest<HTMLElement>("[data-qa]");
+  if (qa?.dataset.qa === "shownew") { qRelease = true; renderNow(); return; }
   const card = t.closest<HTMLElement>(".qcard");
   if (!qa || !card) return;
   const id = card.dataset.q!;
   const s = qState.get(id) ?? {};
   const act = qa.dataset.qa;
   if (act === "go") void answer(id, "go", "");
-  else if (act === "no" || act === "redirect") { qState.set(id, { ...s, mode: act, error: undefined }); renderNow(); card.querySelector("textarea")?.focus(); }
+  else if (act === "no" || act === "redirect") {
+    qState.set(id, { ...s, mode: act, error: undefined });
+    renderNow();
+    // The card was re-rendered, so find its new textarea.
+    $("q-cards").querySelector<HTMLElement>(`[data-key="${CSS.escape(id)}"] textarea`)?.focus();
+  }
   else if (act === "cancel") { qState.set(id, { ...s, mode: undefined, error: undefined }); renderNow(); }
   else if (act === "more") { qState.set(id, { ...s, more: !s.more }); renderNow(); }
 });
