@@ -8,6 +8,7 @@ import { parseMemory, parseTicketLine } from "../hive";
 import { Tail } from "../page/feed";
 import { installPageService, pagePlist } from "../page/service";
 import { activityOf, buildSnapshot, FOLD_AFTER_MS, foldedAgents, recentOf, sessionFolds } from "../page/state";
+import { treeOrder } from "../page/ui/tree";
 import { incoming, pageSignature, parseLines, settle, toolDetail, transcriptPath } from "../transcript";
 
 const line = (o: object) => JSON.stringify(o);
@@ -221,6 +222,22 @@ describe("snapshot", () => {
     ]);
   });
 
+  test("the fold window comes from foldAfterHours in config.json, one day by default", async () => {
+    await agent("maya", "greg", "s-maya");
+    await agent("yesterday", "maya", "s-y");
+    const dir = join(home, "agents", "yesterday");
+    await mkdir(join(dir, "reports"), { recursive: true });
+    await writeFile(join(dir, "reports", "2026-11-14-done.md"), "done\n");
+    await writeFile(join(dir, "log.md"), "- did it\n");
+    const t = new Date(Date.now() - 30 * 60 * 60 * 1000);
+    await utimes(join(dir, "log.md"), t, t);
+    const folded = async () => (await buildSnapshot({ home, claudeHome, live: [] })).agents.find((a) => a.name === "yesterday")!.finished;
+
+    expect(await folded()).toBe(true);
+    await writeFile(join(home, "config.json"), JSON.stringify({ foldAfterHours: 48 }));
+    expect(await folded()).toBe(false);
+  });
+
   test("activity: busy is working, a live idle session is waiting, an ended one asleep", () => {
     expect(activityOf({ id: "", sessionId: "", name: "", cwd: "", kind: "background", status: "busy" })).toBe("working");
     expect(activityOf({ id: "", sessionId: "", name: "", cwd: "", kind: "background", status: "idle", state: "blocked" })).toBe("waiting");
@@ -231,18 +248,24 @@ describe("snapshot", () => {
 
 describe("the Finished fold (D22)", () => {
   const now = Date.parse("2026-11-20T12:00:00Z");
-  const daysAgo = (d: number) => new Date(now - d * 24 * 60 * 60 * 1000).toISOString();
+  const hoursAgo = (h: number) => new Date(now - h * 60 * 60 * 1000).toISOString();
+  const daysAgo = (d: number) => hoursAgo(d * 24);
   type A = Parameters<typeof foldedAgents>[0][number];
   const a = (name: string, o: Partial<A> = {}): A =>
     ({ name, parent: "maya", activity: "asleep", lastActive: daysAgo(8), reports: 1, ...o });
 
-  test("the window is seven days", () => {
-    expect(FOLD_AFTER_MS).toBe(7 * 24 * 60 * 60 * 1000);
+  test("the window is one day", () => {
+    expect(FOLD_AFTER_MS).toBe(24 * 60 * 60 * 1000);
   });
 
-  test("a reported agent idle 8 days folds; 6 days stays", () => {
-    const got = foldedAgents([a("old"), a("recent", { lastActive: daysAgo(6) })], now);
+  test("a reported agent idle 25 hours folds; 23 hours stays", () => {
+    const got = foldedAgents([a("old", { lastActive: hoursAgo(25) }), a("recent", { lastActive: hoursAgo(23) })], now);
     expect([...got]).toEqual(["old"]);
+  });
+
+  test("a longer window from config.json keeps a 25-hour-idle agent in the list", () => {
+    const agents = [a("old", { lastActive: hoursAgo(25) }), a("older", { lastActive: hoursAgo(73) })];
+    expect([...foldedAgents(agents, now, 72 * 60 * 60 * 1000)]).toEqual(["older"]);
   });
 
   test("an agent with no report never folds, however old", () => {
@@ -255,7 +278,7 @@ describe("the Finished fold (D22)", () => {
 
   test("a parent with a child still in the list stays; when the child folds, so does the parent", () => {
     const parent = a("lead");
-    expect([...foldedAgents([parent, a("kid", { parent: "lead", lastActive: daysAgo(2) })], now)]).toEqual([]);
+    expect([...foldedAgents([parent, a("kid", { parent: "lead", lastActive: hoursAgo(2) })], now)]).toEqual([]);
     expect([...foldedAgents([parent, a("kid", { parent: "lead" })], now)].sort()).toEqual(["kid", "lead"]);
   });
 
@@ -276,12 +299,44 @@ describe("the Finished fold (D22)", () => {
     expect([...foldedAgents([a("x", { parent: "y" }), a("y", { parent: "x" })], now)].sort()).toEqual(["x", "y"]);
   });
 
-  test("Greg's sessions fold after seven idle days, by last activity or start", () => {
-    expect(sessionFolds({ activity: "waiting", lastActive: daysAgo(8), startedAt: null }, now)).toBe(true);
-    expect(sessionFolds({ activity: "waiting", lastActive: daysAgo(6), startedAt: daysAgo(30) }, now)).toBe(false);
+  test("Greg's sessions fold after one idle day, by last activity or start", () => {
+    expect(sessionFolds({ activity: "waiting", lastActive: hoursAgo(25), startedAt: null }, now)).toBe(true);
+    expect(sessionFolds({ activity: "waiting", lastActive: hoursAgo(23), startedAt: daysAgo(30) }, now)).toBe(false);
     expect(sessionFolds({ activity: "working", lastActive: daysAgo(8), startedAt: null }, now)).toBe(false);
-    expect(sessionFolds({ activity: "waiting", lastActive: null, startedAt: daysAgo(9) }, now)).toBe(true);
+    expect(sessionFolds({ activity: "waiting", lastActive: null, startedAt: hoursAgo(25) }, now)).toBe(true);
     expect(sessionFolds({ activity: "waiting", lastActive: null, startedAt: null }, now)).toBe(false);
+    expect(sessionFolds({ activity: "waiting", lastActive: hoursAgo(25), startedAt: null }, now, 48 * 60 * 60 * 1000)).toBe(false);
+  });
+});
+
+describe("the rail's tree order", () => {
+  type R = Parameters<typeof treeOrder>[0][number];
+  const r = (name: string, lastActive: string | null, o: Partial<R> = {}): R =>
+    ({ name, parent: "maya", activity: "asleep", lastActive, ...o });
+
+  test("maya first; under a parent, live work, then the most recent activity, then the name", () => {
+    const rows = treeOrder([
+      r("maya", "2026-11-01T00:00:00.000Z", { parent: "greg" }),
+      r("alpha", "2026-11-14T09:00:00.000Z"),
+      r("beta", "2026-11-15T09:00:00.000Z"),
+      r("gamma", "2026-11-10T09:00:00.000Z", { activity: "working" }),
+      r("delta", null),
+      r("eps", "2026-11-15T09:00:00.000Z"),
+      r("kid-old", "2026-11-12T00:00:00.000Z", { parent: "alpha" }),
+      r("kid-new", "2026-11-13T00:00:00.000Z", { parent: "alpha" }),
+      r("solo", "2026-11-15T10:00:00.000Z", { parent: "greg" }),
+    ]);
+    expect(rows.map((x) => [x.node.name, x.depth])).toEqual([
+      ["maya", 1],
+      ["gamma", 2],
+      ["beta", 2],
+      ["eps", 2],
+      ["alpha", 2],
+      ["kid-new", 3],
+      ["kid-old", 3],
+      ["delta", 2],
+      ["solo", 1],
+    ]);
   });
 });
 

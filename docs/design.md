@@ -315,14 +315,21 @@ dashboard as too busy, too long, and read-only.
 
 **Finished.** Finished agents fold out of the tree into a collapsed
 **Finished** group under it (D22). A task agent folds when it has at least
-one file in `reports/`, is not on a turn, and has done nothing for 7 days
-(`FOLD_AFTER_MS` in `src/page/state.ts`). Its last activity is its
+one file in `reports/`, is not on a turn, and has done nothing for one day
+(`foldAfterHours` in `~/.comb/config.json`, default 24; `FOLD_AFTER_MS` in
+`src/page/state.ts`). Its last activity is its
 transcript's last event, or `log.md`'s mtime once Claude Code has pruned the
 transcript. Maya never folds. A parent stays while any child of its stays.
-Greg's own sessions fold the same way by last activity, into a Finished
+Greg's own sessions fold the same way by last activity, with the same
+window, into a Finished
 group under Your sessions. The group opens with one click, and opens by
 itself when the selected row is in it. Folding deletes nothing: a message
 still wakes the agent, and a woken agent is back in the tree.
+
+**Tree order.** Maya comes first. Under each parent, a working agent comes
+first, then the rest by last activity, newest first, then by name
+(`treeOrder` in `src/page/ui/tree.ts`). Live work sits at the top of its
+branch, and the rows that are about to fold sit at the bottom.
 
 **Open in terminal** (built 2026-11-12; `hive attach` 2026-11-13). Each
 agent's header has the `hive attach <name>` command (click copies it) and an
@@ -517,6 +524,15 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   a pure function on the snapshot (`foldedAgents`, `sessionFolds`), so the
   page only renders it. A report is the signal for "finished" because an
   agent with no report has not handed anything back yet.
+  - 2026-11-15: the window is one day, not seven, for agents and for Greg's
+    sessions; `foldAfterHours` in `~/.comb/config.json` changes it. Greg,
+    looking at 20 task agents under Maya, most finished 1–3 days ago:
+    "should we hide Maya agents under Maya that are more than one day
+    old... or maybe hide stuff that's over one day old if this list gets
+    larger than twelve or so." A flat rule, not a count threshold: with a
+    threshold, the list would change shape when the 13th agent appears.
+    Siblings now sort working first, then by last activity, newest first,
+    in place of alphabetical order.
 - **D23. hive's nightly picks and asks are filed into the queue by comb, on
   the page server's hourly timer** (2026-11-13, §9.3). Greg: "Put hive's
   nightly Act picks and briefing asks in the comb queue." comb reads hive's

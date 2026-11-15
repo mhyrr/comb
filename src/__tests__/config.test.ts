@@ -21,7 +21,7 @@ const write = (o: unknown) => writeFile(join(home, "config.json"), typeof o === 
 
 describe("readCombConfig", () => {
   test("no config.json: no name, hive auto, no identity file", () => {
-    expect(readCombConfig(home)).toEqual({ userName: null, hive: "auto", identityFile: null, nightlyAsks: false, defaultModel: "opus" });
+    expect(readCombConfig(home)).toEqual({ userName: null, hive: "auto", identityFile: null, nightlyAsks: false, defaultModel: "opus", foldAfterHours: 24 });
     expect(DEFAULT_USER_NAME).toBe("You");
   });
 
@@ -37,7 +37,7 @@ describe("readCombConfig", () => {
   test("blank or wrong-typed values fall back, and a bad hive or nightlyAsks value is reported", async () => {
     await write({ userName: "  ", hive: "maybe", identityFile: 3, nightlyAsks: "yes" });
     const errors: string[] = [];
-    expect(readCombConfig(home, (m) => errors.push(m))).toEqual({ userName: null, hive: "auto", identityFile: null, nightlyAsks: false, defaultModel: "opus" });
+    expect(readCombConfig(home, (m) => errors.push(m))).toEqual({ userName: null, hive: "auto", identityFile: null, nightlyAsks: false, defaultModel: "opus", foldAfterHours: 24 });
     expect(errors).toEqual(['"hive" must be one of auto, on, off; using auto', '"nightlyAsks" must be true or false; using false']);
   });
 
@@ -48,6 +48,19 @@ describe("readCombConfig", () => {
     const errors: string[] = [];
     expect(readCombConfig(home, (m) => errors.push(m)).defaultModel).toBe("opus");
     expect(errors).toEqual(['"defaultModel" must be one of opus, sonnet, fable; using opus']);
+  });
+
+  test("foldAfterHours is a positive number of hours; anything else is reported and gives 24", async () => {
+    await write({ foldAfterHours: 72 });
+    expect(readCombConfig(home).foldAfterHours).toBe(72);
+    await write({ foldAfterHours: 0.5 });
+    expect(readCombConfig(home).foldAfterHours).toBe(0.5);
+    for (const bad of [0, -3, "48", null]) {
+      await write({ foldAfterHours: bad });
+      const errors: string[] = [];
+      expect(readCombConfig(home, (m) => errors.push(m)).foldAfterHours).toBe(24);
+      expect(errors).toEqual(['"foldAfterHours" must be a positive number; using 24']);
+    }
   });
 
   test("COMB_HIVE overrides the file", async () => {

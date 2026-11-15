@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 import { agentDir, GREG, readAgentSession, type AgentSession } from "../agents";
 import { isEnded, type LiveSession } from "../claude";
-import { readCombConfig, userLabel, type UserLabel } from "../config";
+import { DEFAULT_FOLD_AFTER_HOURS, readCombConfig, userLabel, type UserLabel } from "../config";
 import { projectForDir } from "../hive";
 import { listItems, type QueueItem } from "../queue";
 import { parseLines, settle, transcriptPath, type FeedEvent } from "../transcript";
@@ -124,8 +124,10 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
       finished: false,
     });
   }
+  const config = readCombConfig(home);
+  const foldAfter = config.foldAfterHours * HOUR_MS;
   const now = Date.now();
-  const folded = foldedAgents(agents, now);
+  const folded = foldedAgents(agents, now, foldAfter);
   for (const a of agents) a.finished = folded.has(a.name);
 
   const mine: SessionNode[] = [];
@@ -150,7 +152,7 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
       startedAt: typeof (row as any).startedAt === "number" ? new Date((row as any).startedAt).toISOString() : null,
       finished: false,
     };
-    if (kind === "interactive") node.finished = sessionFolds(node, now);
+    if (kind === "interactive") node.finished = sessionFolds(node, now, foldAfter);
     (kind === "interactive" ? mine : others).push(node);
   }
   const recent = (a: SessionNode, b: SessionNode) =>
@@ -159,7 +161,6 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
   others.sort(recent);
 
   const queue = await listItems(home).catch(() => []);
-  const config = readCombConfig(home);
   const user = userLabel(config);
   return {
     at: new Date().toISOString(), user, hive: opts.hive ?? false, defaultModel: config.defaultModel,
@@ -167,8 +168,13 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
   };
 }
 
-/** How long a finished agent or Greg's idle session stays in the main list. */
-export const FOLD_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * How long a finished agent or Greg's idle session stays in the main list
+ * by default: one day. `foldAfterHours` in config.json overrides it.
+ */
+export const FOLD_AFTER_MS = DEFAULT_FOLD_AFTER_HOURS * HOUR_MS;
 
 const idleFor = (lastActive: string | null, now: number) => {
   const t = lastActive ? Date.parse(lastActive) : NaN;
@@ -177,13 +183,14 @@ const idleFor = (lastActive: string | null, now: number) => {
 
 /**
  * Which agents fold into the Finished group (D22). An agent folds when it
- * has written a report, is not on a turn, and has done nothing for
- * FOLD_AFTER_MS. Maya never folds, and a parent stays while any child of
+ * has written a report, is not on a turn, and has done nothing for `after`
+ * (FOLD_AFTER_MS unless config.json sets foldAfterHours). Maya never folds, and a parent stays while any child of
  * its stays. Folding hides a row; it deletes nothing.
  */
 export function foldedAgents(
   agents: Pick<AgentNode, "name" | "parent" | "activity" | "lastActive" | "reports">[],
   now: number,
+  after: number = FOLD_AFTER_MS,
 ): Set<string> {
   const byName = new Map(agents.map((a) => [a.name, a]));
   const kids = new Map<string, string[]>();
@@ -192,7 +199,7 @@ export function foldedAgents(
   const folds = (name: string, path: Set<string>): boolean => {
     if (memo.has(name)) return memo.get(name)!;
     const a = byName.get(name)!;
-    let ok = a.name !== "maya" && a.reports > 0 && a.activity !== "working" && idleFor(a.lastActive, now) >= FOLD_AFTER_MS;
+    let ok = a.name !== "maya" && a.reports > 0 && a.activity !== "working" && idleFor(a.lastActive, now) >= after;
     path.add(name);
     for (const k of kids.get(name) ?? []) {
       if (!ok) break;
@@ -206,8 +213,12 @@ export function foldedAgents(
 }
 
 /** Greg's own sessions fold the same way, by last activity alone. */
-export function sessionFolds(s: Pick<SessionNode, "activity" | "lastActive" | "startedAt">, now: number): boolean {
-  return s.activity !== "working" && idleFor(s.lastActive ?? s.startedAt, now) >= FOLD_AFTER_MS;
+export function sessionFolds(
+  s: Pick<SessionNode, "activity" | "lastActive" | "startedAt">,
+  now: number,
+  after: number = FOLD_AFTER_MS,
+): boolean {
+  return s.activity !== "working" && idleFor(s.lastActive ?? s.startedAt, now) >= after;
 }
 
 function mtimeOf(path: string): string | null {

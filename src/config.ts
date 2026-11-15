@@ -6,7 +6,8 @@
  *     "hive": "auto",             "auto" (use hive when installed), "on" (require it), "off"
  *     "identityFile": "~/me.md",  the identity agents get when hive is off
  *     "nightlyAsks": false,       file hive's briefing asks into the queue (§9.3; off by default)
- *     "defaultModel": "opus"      the model for delegated work when none is named (D25)
+ *     "defaultModel": "opus",     the model for delegated work when none is named (D25)
+ *     "foldAfterHours": 24        idle hours before finished work folds on the page (D22)
  *   }
  *
  * The human's internal id stays "greg" (GREG in agents.ts) whatever the name:
@@ -35,7 +36,12 @@ export type CombConfig = {
   nightlyAsks: boolean;
   /** The model agent_start and the queue's picker use when none is named: one of MODELS, "opus" unless set. */
   defaultModel: Model;
+  /** Idle hours before a finished agent, or one of the human's sessions, folds on the page (D22). */
+  foldAfterHours: number;
 };
+
+/** The page folds finished work after one idle day unless foldAfterHours says otherwise. */
+export const DEFAULT_FOLD_AFTER_HOURS = 24;
 
 /** The human as the page shows them: a name, and the letter in the root avatar. */
 export type UserLabel = { name: string; initial: string };
@@ -71,12 +77,16 @@ export function readCombConfig(home: string = resolveCombHome(), onError?: (msg:
   if (raw.defaultModel !== undefined && !isModel(raw.defaultModel)) {
     onError?.(`"defaultModel" must be one of ${MODELS.join(", ")}; using ${DEFAULT_MODEL}`);
   }
+  const fold = raw.foldAfterHours;
+  const foldOk = typeof fold === "number" && Number.isFinite(fold) && fold > 0;
+  if (fold !== undefined && !foldOk) onError?.(`"foldAfterHours" must be a positive number; using ${DEFAULT_FOLD_AFTER_HOURS}`);
   return {
     userName: str(raw.userName),
     hive,
     identityFile: file ? file.replace(/^~(?=\/|$)/, process.env.HOME || homedir()) : null,
     nightlyAsks: raw.nightlyAsks === true,
     defaultModel: isModel(raw.defaultModel) ? raw.defaultModel : DEFAULT_MODEL,
+    foldAfterHours: foldOk ? fold : DEFAULT_FOLD_AFTER_HOURS,
   };
 }
 

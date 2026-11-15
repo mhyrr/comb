@@ -9,6 +9,7 @@ import type { FeedEvent } from "../../transcript";
 import type { Activity, AgentNode, Now, SessionNode, Snapshot } from "../state";
 import { esc, md as markdown } from "./md";
 import { admit, holdingPlace, patchList, setHtml } from "./patch";
+import { treeOrder } from "./tree";
 import { modelLabel, MODELS, picksModel } from "../../models";
 
 /** Markdown, with "[Screenshot: …/inbox/<file>]" shown as the image itself. */
@@ -438,25 +439,6 @@ function reconcile(ul: HTMLElement, specs: RowSpec[]) {
   for (const li of existing.values()) li.remove();
   const same = order.length === ul.children.length && order.every((li, i) => ul.children[i] === li);
   if (!same) order.forEach((li) => ul.appendChild(li));
-}
-
-function treeOrder(agents: AgentNode[]): { node: AgentNode; depth: number }[] {
-  const names = new Set(agents.map((a) => a.name));
-  const kids = new Map<string, AgentNode[]>();
-  for (const a of agents) {
-    const p = names.has(a.parent) && a.parent !== a.name ? a.parent : "greg";
-    kids.set(p, [...(kids.get(p) ?? []), a]);
-  }
-  const out: { node: AgentNode; depth: number }[] = [];
-  const walk = (parent: string, depth: number) => {
-    const list = (kids.get(parent) ?? []).sort((x, y) => (x.name === "maya" ? -1 : y.name === "maya" ? 1 : x.name.localeCompare(y.name)));
-    for (const a of list) {
-      out.push({ node: a, depth });
-      if (depth < 12) walk(a.name, depth + 1);
-    }
-  };
-  walk("greg", 1);
-  return out;
 }
 
 function renderRail() {

@@ -63,7 +63,8 @@ build: it reloads the page onto the new binary.
   "hive": "auto",
   "identityFile": "~/notes/me.md",
   "nightlyAsks": false,
-  "defaultModel": "opus"
+  "defaultModel": "opus",
+  "foldAfterHours": 24
 }
 ```
 
@@ -82,6 +83,9 @@ build: it reloads the page onto the new binary.
   queue card's "Go · Opus ▾" offers it when the agent that filed the card
   did not suggest a model. Pick another model from the caret before you
   press Go.
+- **`foldAfterHours`**: how long finished work stays in the page's main
+  list. After this many idle hours (24 by default), an agent with a report
+  folds into the Finished group, and so does one of your idle sessions.
 
 `comb init` never writes this file.
 
@@ -165,7 +169,7 @@ Its workspace is a folder you can read and edit:
 - **`agent_send` reaches any agent by name, awake or asleep.** An asleep agent
   wakes with its history and the message.
 - **An agent finishes with a report** and stops. A message wakes it again.
-  After 7 idle days a finished agent folds into a Finished group on the page.
+  After one idle day a finished agent folds into a Finished group on the page.
   comb deletes nothing.
 - **Code changes go on the agent's own worktree.** Agents never merge or
   push. External actions go to you through the queue.
