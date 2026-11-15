@@ -62,6 +62,8 @@ export type Snapshot = {
   user: UserLabel;
   /** hive is on: tickets, memory and `hive attach` (D24). */
   hive: boolean;
+  /** config.json's defaultModel: what the queue's picker shows when an item names none (D25). */
+  defaultModel: string;
   agents: AgentNode[];
   /** Greg's own interactive sessions. */
   mine: SessionNode[];
@@ -157,8 +159,12 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
   others.sort(recent);
 
   const queue = await listItems(home).catch(() => []);
-  const user = userLabel(readCombConfig(home));
-  return { at: new Date().toISOString(), user, hive: opts.hive ?? false, agents, mine, others, queue, error: opts.liveError ?? null };
+  const config = readCombConfig(home);
+  const user = userLabel(config);
+  return {
+    at: new Date().toISOString(), user, hive: opts.hive ?? false, defaultModel: config.defaultModel,
+    agents, mine, others, queue, error: opts.liveError ?? null,
+  };
 }
 
 /** How long a finished agent or Greg's idle session stays in the main list. */

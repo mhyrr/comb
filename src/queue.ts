@@ -11,6 +11,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { UsageError } from "./errors";
+import { isModel, MODELS, picksModel } from "./models";
 import { getCombPaths } from "./paths";
 
 export const KINDS = ["proposal", "decision", "review", "blocker"] as const;
@@ -33,11 +34,28 @@ export type QueueItem = {
   answered: string | null;
   /** Greg's reason or redirection, if he gave one. */
   note: string | null;
+  /**
+   * The model for the work go starts (D25): the filer's pick while open,
+   * Greg's pick once he says go. Null means config.json's defaultModel.
+   */
+  model: string | null;
+  /** The filer's one-line reason for its model pick. */
+  modelWhy: string | null;
   /** The agent's case: why, its recommendation, the evidence. Markdown. */
   body: string;
 };
 
-const FIELDS = ["id", "kind", "from", "title", "action", "project", "ticket", "status", "created", "answered", "note"] as const;
+const FIELDS = ["id", "kind", "from", "title", "action", "project", "ticket", "model", "modelWhy", "status", "created", "answered", "note"] as const;
+export { picksModel };
+
+/**
+ * The model a go carries (D25): Greg's pick, else the filer's, else
+ * config.json's default. Null for an answer that starts nothing.
+ */
+export function answerModel(item: QueueItem, answer: Answer, picked: string | null, defaultModel: string): string | null {
+  if (answer !== "go" || !picksModel(item)) return null;
+  return picked ?? item.model ?? defaultModel;
+}
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 
 export function serializeItem(item: QueueItem): string {
@@ -62,6 +80,8 @@ export function parseItem(text: string): QueueItem {
     action: f.action ?? "",
     project: orNull(f.project),
     ticket: orNull(f.ticket),
+    model: orNull(f.model),
+    modelWhy: orNull(f.modelWhy),
     status: (["open", "approved", "declined", "redirected"].includes(f.status ?? "") ? f.status : "open") as Status,
     created: f.created ?? "",
     answered: orNull(f.answered),
@@ -82,6 +102,9 @@ export type NewItem = {
   body?: string;
   project?: string | null;
   ticket?: string | null;
+  /** One of MODELS, for an item whose go starts work. */
+  model?: string | null;
+  modelWhy?: string | null;
 };
 
 export async function addItem(n: NewItem, home?: string, now = new Date()): Promise<QueueItem> {
@@ -90,6 +113,11 @@ export async function addItem(n: NewItem, home?: string, now = new Date()): Prom
   }
   if (!oneLine(n.title)) throw new UsageError("Give the item a title: what Greg is saying yes or no to.");
   if (!oneLine(n.action)) throw new UsageError("Say what you will do when Greg says go.");
+  const model = n.model?.trim() || null;
+  if (model && !isModel(model)) throw new UsageError(`model must be one of ${MODELS.join(", ")}`);
+  if (model && (n.kind === "decision" || n.kind === "blocker")) {
+    throw new UsageError(`A ${n.kind} starts no work, so it takes no model. Leave model off.`);
+  }
   const { queueDir } = getCombPaths(home);
   const stamp = now.toISOString().slice(0, 10);
   let id = `${stamp}-${slug(n.title)}`;
@@ -102,6 +130,8 @@ export async function addItem(n: NewItem, home?: string, now = new Date()): Prom
     action: oneLine(n.action),
     project: n.project?.trim() || null,
     ticket: n.ticket?.trim() || null,
+    model,
+    modelWhy: model ? (n.modelWhy ? oneLine(n.modelWhy) || null : null) : null,
     status: "open",
     created: now.toISOString(),
     answered: null,
@@ -140,11 +170,15 @@ export async function readItem(id: string, home?: string): Promise<QueueItem> {
   return parseItem(await readFile(path, "utf-8"));
 }
 
-/** The message the asking agent gets. */
-export function answerMessage(item: QueueItem, answer: Answer, note: string | null): string {
+/**
+ * The message the asking agent gets. `model` is Greg's pick on a go that
+ * starts work (picksModel); the message names it, and says to start with it.
+ */
+export function answerMessage(item: QueueItem, answer: Answer, note: string | null, model: string | null = null): string {
   const ref = `your ${item.kind} "${item.title}" (queue item ${item.id})`;
   if (answer === "go") {
-    return `Greg approved ${ref}. Go: ${item.action}${note ? `\n\nHis note: ${note}` : ""}`;
+    const run = model ? `\n\nRun the work on ${model}: pass model "${model}" to agent_start.` : "";
+    return `Greg approved ${ref}. Go${model ? ` (model: ${model})` : ""}: ${item.action}${run}${note ? `\n\nHis note: ${note}` : ""}`;
   }
   if (answer === "no") {
     return `Greg said not now to ${ref}. Do not do it.${note ? `\n\nHis reason: ${note}` : ""}`;
@@ -156,13 +190,17 @@ export function answerMessage(item: QueueItem, answer: Answer, note: string | nu
  * Records Greg's answer and his precedent. Call after the message reached the
  * agent, so an undelivered answer leaves the item open.
  */
-export async function recordAnswer(id: string, answer: Answer, note: string | null, home?: string, now = new Date()): Promise<QueueItem> {
+export async function recordAnswer(
+  id: string, answer: Answer, note: string | null, home?: string, now = new Date(), model: string | null = null,
+): Promise<QueueItem> {
   const item = await readItem(id, home);
   if (item.status !== "open") throw new UsageError(`Already answered (${item.status}).`);
   const paths = getCombPaths(home);
+  const proposedModel = item.model;
   item.status = answer === "go" ? "approved" : answer === "no" ? "declined" : "redirected";
   item.answered = now.toISOString();
   item.note = note?.trim() || null;
+  if (answer === "go" && model) item.model = model;
   await writeFile(join(paths.queueDir, id, "item.md"), serializeItem(item), "utf-8");
   await mkdir(paths.precedentsDir, { recursive: true });
   const precedent = [
@@ -171,6 +209,9 @@ export async function recordAnswer(id: string, answer: Answer, note: string | nu
     `- Asked by: ${item.from} (${item.kind}${item.project ? `, ${item.project}` : ""}${item.ticket ? ` ${item.ticket}` : ""})`,
     `- Proposed: ${item.action}`,
     `- Greg: ${answer === "go" ? "go" : answer === "no" ? "not now" : "redirect"}`,
+    ...(answer === "go" && model
+      ? [`- Model: ${model}${proposedModel && proposedModel !== model ? ` (${item.from} proposed ${proposedModel})` : ""}`]
+      : []),
     item.note ? `- Why: ${item.note}` : "- Why: (no reason given)",
     `- When: ${item.answered}`,
     "",

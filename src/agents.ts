@@ -42,7 +42,7 @@ export type AgentSession = {
   cwd: string;
   worktree: boolean;
   permissionMode: string;
-  /** The model it was started with, from its settings.json; null for Claude Code's default. */
+  /** The model it was started with, from its settings.json. Null only in records from before D25. */
   model?: string | null;
   startedAt: string;
 };
@@ -221,7 +221,10 @@ export type StartAgentOpts = {
   prompt?: string;
   home?: string;
   permissionMode?: string;
-  /** Model for this agent. Saved to its settings.json, so restarts keep it. */
+  /**
+   * Model for this agent. Omitted: the one in its settings.json, else
+   * config.json's defaultModel. Saved to settings.json, so restarts keep it.
+   */
   model?: string;
   claudeBin?: string;
   run?: Run;
@@ -312,12 +315,14 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
     ? "You were restarted from your workspace. Read charter.md, checklist.md, memory/ and the end of log.md, then carry on."
     : "Read your charter.md and checklist.md, then begin.");
   const permissionMode = opts.permissionMode ?? process.env.COMB_PERMISSION_MODE ?? "auto";
+  // The named model, else the one this agent already runs on, else
+  // config.json's defaultModel (D25). Saved, so a wake keeps it.
   const settings = await readAgentSettings(dir);
-  if (opts.model?.trim() && opts.model.trim() !== settings.model) {
-    settings.model = opts.model.trim();
+  const model = opts.model?.trim() || settings.model?.trim() || config.defaultModel;
+  if (model !== settings.model) {
+    settings.model = model;
     await writeAgentSettings(dir, settings);
   }
-  const model = settings.model?.trim() || undefined;
 
   // A previous session that died keeps its history; wake it rather than lose it.
   const resume = previous && previous.cwd === cwd ? previous.sessionId : undefined;
@@ -348,14 +353,14 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
     cwd: !resume && opts.worktree ? join(started.cwd, ".claude", "worktrees", name) : started.cwd,
     worktree: previous?.worktree ?? !!opts.worktree,
     permissionMode,
-    model: model ?? null,
+    model,
     startedAt: new Date().toISOString(),
   };
   await writeFile(join(dir, "session.json"), JSON.stringify(session, null, 2) + "\n", "utf-8");
   const verb = ranBefore ? (resume ? "resumed" : "restarted") : "started";
   await appendFile(
     join(dir, "log.md"),
-    `- ${session.startedAt} ${verb} by ${parent} in ${session.cwd} (session ${session.id}${model ? `, model ${model}` : ""})\n`,
+    `- ${session.startedAt} ${verb} by ${parent} in ${session.cwd} (session ${session.id}, model ${model})\n`,
     "utf-8",
   );
   return { session, restarted: ranBefore, dir };

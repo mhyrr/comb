@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { addItem, answerMessage, listItems, parseItem, recordAnswer, serializeItem } from "../queue";
+import { addItem, answerMessage, answerModel, listItems, parseItem, recordAnswer, serializeItem } from "../queue";
 
 let home: string;
 beforeEach(async () => { home = await mkdtemp(join(tmpdir(), "comb-queue-")); });
@@ -56,10 +56,48 @@ test("the list holds open items first, then recent answers; stale answers drop o
 });
 
 test("the answer message tells the agent exactly what to do", () => {
-  const item = { ...base, id: "x", kind: "proposal" as const, status: "open" as const, created: "", answered: null, note: null, body: "" };
+  const item = { ...base, id: "x", kind: "proposal" as const, model: null, modelWhy: null, status: "open" as const, created: "", answered: null, note: null, body: "" };
   expect(answerMessage(item, "go", null)).toBe('Greg approved your proposal "Start a acme-api agent on TK-143" (queue item x). Go: Start acme-api on TK-143 and triage the 22 Sobelow findings.');
   expect(answerMessage(item, "no", "later")).toContain("Do not do it.\n\nHis reason: later");
   expect(answerMessage(item, "redirect", "Do the dependabot batch first.")).toContain("Do this instead: Do the dependabot batch first.");
+});
+
+test("a proposal carries the filer's model and its reason; a decision refuses one", async () => {
+  const item = await addItem({ ...base, model: "sonnet", modelWhy: "A mechanical\nrename." }, home);
+  expect(item).toMatchObject({ model: "sonnet", modelWhy: "A mechanical rename." });
+  const text = await readFile(join(home, "queue", item.id, "item.md"), "utf-8");
+  expect(text).toContain("model: sonnet\nmodelWhy: A mechanical rename.\n");
+  expect(parseItem(text)).toEqual(item);
+  await expect(addItem({ ...base, model: "gpt" }, home)).rejects.toThrow("model must be one of opus, sonnet, fable");
+  await expect(addItem({ ...base, kind: "decision", model: "opus" }, home)).rejects.toThrow("takes no model");
+  await expect(addItem({ ...base, kind: "blocker", model: "opus" }, home)).rejects.toThrow("takes no model");
+  // An item filed before D25 has no model lines and reads as null.
+  expect(parseItem("---\nid: old\nkind: proposal\ntitle: t\naction: a\n---\n")).toMatchObject({ model: null, modelWhy: null });
+});
+
+test("a go names a model only when it starts work: Greg's pick, else the filer's, else the default", () => {
+  const item = { ...base, id: "x", kind: "proposal" as const, model: null, modelWhy: null, status: "open" as const, created: "", answered: null, note: null, body: "" };
+  expect(answerModel(item, "go", "fable", "opus")).toBe("fable");
+  expect(answerModel({ ...item, model: "sonnet" }, "go", null, "opus")).toBe("sonnet");
+  expect(answerModel(item, "go", null, "opus")).toBe("opus");
+  expect(answerModel(item, "no", "fable", "opus")).toBeNull();
+  // A review starts work only when its filer named a model; a decision never does.
+  expect(answerModel({ ...item, kind: "review" }, "go", "fable", "opus")).toBeNull();
+  expect(answerModel({ ...item, kind: "review", model: "sonnet" }, "go", "fable", "opus")).toBe("fable");
+  expect(answerModel({ ...item, kind: "decision" }, "go", "fable", "opus")).toBeNull();
+});
+
+test("Greg's Fable pick reaches the filer by name, and lands in the item and the precedent", async () => {
+  const item = await addItem({ ...base, model: "opus", modelWhy: "Design judgment." }, home);
+  expect(answerMessage(item, "go", null, "fable")).toBe(
+    `Greg approved your proposal "Start a acme-api agent on TK-143" (queue item ${item.id}). ` +
+    "Go (model: fable): Start acme-api on TK-143 and triage the 22 Sobelow findings.\n\n" +
+    'Run the work on fable: pass model "fable" to agent_start.',
+  );
+  const done = await recordAnswer(item.id, "go", null, home, new Date(), "fable");
+  expect(done.model).toBe("fable");
+  const precedent = await readFile(join(home, "precedents", `${item.id}.md`), "utf-8");
+  expect(precedent).toContain("- Model: fable (maya proposed opus)\n");
 });
 
 test("Start on a ticket gives Maya everything she needs and tells her not to come back first", async () => {

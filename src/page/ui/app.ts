@@ -9,6 +9,7 @@ import type { FeedEvent } from "../../transcript";
 import type { Activity, AgentNode, Now, SessionNode, Snapshot } from "../state";
 import { esc, md as markdown } from "./md";
 import { admit, holdingPlace, patchList, setHtml } from "./patch";
+import { modelLabel, MODELS, picksModel } from "../../models";
 
 /** Markdown, with "[Screenshot: …/inbox/<file>]" shown as the image itself. */
 function md(text: string): string {
@@ -663,8 +664,9 @@ function noHiveView(title: string): string {
 type Report = { agent: string; file: string; title: string; summary: string };
 let reportsCache: { at: number; list: Report[] } | null = null;
 let ticketsAt = 0;
-/** Per queue item: an open note form, what was typed, and a send in flight. */
-const qState = new Map<string, { mode?: "no" | "redirect"; text?: string; busy?: boolean; error?: string; more?: boolean }>();
+/** Per queue item: an open note form, what was typed, a send in flight, and the model menu and pick. */
+type QState = { mode?: "no" | "redirect"; text?: string; busy?: boolean; error?: string; more?: boolean; menu?: boolean; model?: string };
+const qState = new Map<string, QState>();
 const started = (() => {
   try { return new Set<string>(JSON.parse(localStorage.getItem("comb.started") ?? "[]")); } catch { return new Set<string>(); }
 })();
@@ -695,7 +697,7 @@ function queueBusy(): boolean {
   const q = document.getElementById("now-queue");
   if (!q) return false;
   if (q.contains(document.activeElement)) return true;
-  if ([...qState.values()].some((s) => s.mode || s.more || s.busy)) return true;
+  if ([...qState.values()].some((s) => s.mode || s.more || s.busy || s.menu)) return true;
   const scroller = dashScroller();
   return !!scroller && q.getBoundingClientRect().top < scroller.getBoundingClientRect().top - 1;
 }
@@ -791,11 +793,30 @@ function queueCard(q: QueueItem): string {
       ? `<div class="qbody prose${s.more ? " open" : ""}">${md(q.body)}</div><button type="button" class="qmore" data-qa="more" ${k("more")}>${s.more ? "Less" : "Read the case"}</button>`
       : `<div class="qbody prose open">${md(q.body)}</div>`) : ""}
     ${form || `<div class="qbtns">
-      <button type="button" class="go" data-qa="go" ${k("go")}${s.busy ? " disabled" : ""}>${s.busy ? "Sending…" : "Go"}</button>
+      ${picksModel(q) ? goPicker(q, s, k) : `<button type="button" class="go" data-qa="go" ${k("go")}${s.busy ? " disabled" : ""}>${s.busy ? "Sending…" : "Go"}</button>`}
       <button type="button" data-qa="no" ${k("no")}${s.busy ? " disabled" : ""}>Not now</button>
       <button type="button" data-qa="redirect" ${k("redirect")}${s.busy ? " disabled" : ""}>Redirect</button></div>`}
     ${s.error ? `<p class="problem">${esc(s.error)}</p>` : ""}
   </article>`;
+}
+
+/** The model Go will send for this item: Greg's pick, else the filer's, else config.json's default. */
+const goModel = (q: QueueItem) => qState.get(q.id)?.model ?? q.model ?? snap?.defaultModel ?? "opus";
+
+/** "Go · Opus ▾": Go sends the shown model; the caret opens the list (D25). */
+function goPicker(q: QueueItem, s: QState, k: (part: string) => string): string {
+  const pick = goModel(q);
+  const off = s.busy ? " disabled" : "";
+  const note = (m: string) =>
+    m === q.model ? `<small>${esc(who(q.from))}'s pick${q.modelWhy ? `: ${esc(q.modelWhy)}` : ""}</small>`
+    : !q.model && m === snap?.defaultModel ? "<small>Your default</small>" : "";
+  const menu = s.menu && !s.busy
+    ? `<div class="gomenu" role="menu" aria-label="Model">${MODELS.map((m) =>
+        `<button type="button" role="menuitemradio" aria-checked="${m === pick}" data-qa="model" data-model="${m}" ${k(`model-${m}`)}><b>${esc(modelLabel(m))}</b>${note(m)}</button>`).join("")}</div>`
+    : "";
+  return `<div class="gosplit">
+    <button type="button" class="go" data-qa="go" ${k("go")}${off}>${s.busy ? "Sending…" : `Go <span class="gom">· ${esc(modelLabel(pick))}</span>`}</button><button type="button" class="go gocaret" data-qa="menu" ${k("menu")} aria-haspopup="menu" aria-expanded="${!!s.menu}" aria-label="Choose the model"${off}>▾</button>
+    ${menu}</div>`;
 }
 
 function queueRest(openCount: number, answered: QueueItem[]): string {
@@ -868,15 +889,15 @@ async function fillReports() {
     `<a class="report-card" href="#/agent/${encodeURIComponent(r.agent)}/reports"><span class="rc-head"><b>${esc(r.title)}</b></span>${r.summary ? `<span class="rc-sum">${esc(r.summary)}</span>` : ""}<span class="rc-meta">${esc(who(r.agent))}, ${esc(r.file.slice(0, 10))}</span></a>`).join("")}` : "");
 }
 
-async function answer(id: string, ans: "go" | "no" | "redirect", note: string) {
+async function answer(id: string, ans: "go" | "no" | "redirect", note: string, model?: string) {
   const s = qState.get(id) ?? {};
-  qState.set(id, { ...s, busy: true, error: undefined });
+  qState.set(id, { ...s, busy: true, menu: false, error: undefined });
   renderNow();
   try {
     const res = await fetch(`/api/queue/${encodeURIComponent(id)}/answer`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ answer: ans, note }),
+      body: JSON.stringify({ answer: ans, note, ...(model ? { model } : {}) }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? "Could not send the answer.");
@@ -920,8 +941,19 @@ stage.addEventListener("click", (e) => {
   const id = card.dataset.q!;
   const s = qState.get(id) ?? {};
   const act = qa.dataset.qa;
-  if (act === "go") void answer(id, "go", "");
-  else if (act === "no" || act === "redirect") {
+  const focusIn = (part: string) => $("q-cards").querySelector<HTMLElement>(`[data-keep="${CSS.escape(`${id}:${part}`)}"]`)?.focus();
+  if (act === "go") {
+    const q = snap?.queue.find((x) => x.id === id);
+    void answer(id, "go", "", q && picksModel(q) ? goModel(q) : undefined);
+  } else if (act === "menu") {
+    qState.set(id, { ...s, menu: !s.menu });
+    renderNow();
+    if (!s.menu) focusIn(`model-${$("q-cards").querySelector<HTMLElement>(`[data-key="${CSS.escape(id)}"] [aria-checked="true"]`)?.dataset.model}`);
+  } else if (act === "model") {
+    qState.set(id, { ...s, menu: false, model: qa.dataset.model });
+    renderNow();
+    focusIn("go");
+  } else if (act === "no" || act === "redirect") {
     qState.set(id, { ...s, mode: act, error: undefined });
     renderNow();
     // The card was re-rendered, so find its new textarea.
@@ -929,6 +961,23 @@ stage.addEventListener("click", (e) => {
   }
   else if (act === "cancel") { qState.set(id, { ...s, mode: undefined, error: undefined }); renderNow(); }
   else if (act === "more") { qState.set(id, { ...s, more: !s.more }); renderNow(); }
+});
+/** Closes every open model menu but the one `keep` is in; true if any closed. */
+function closeMenus(keep?: string): boolean {
+  let closed = false;
+  for (const [id, s] of qState) if (s.menu && id !== keep) { qState.set(id, { ...s, menu: false }); closed = true; }
+  return closed;
+}
+document.addEventListener("click", (e) => {
+  const inside = (e.target as HTMLElement).closest<HTMLElement>(".gosplit")?.closest<HTMLElement>(".qcard")?.dataset.q;
+  if (closeMenus(inside) && route.view === "now") renderNow();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || route.view !== "now") return;
+  const id = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(".qcard")?.dataset.q;
+  if (!closeMenus()) return;
+  renderNow();
+  if (id) $("q-cards").querySelector<HTMLElement>(`[data-keep="${CSS.escape(`${id}:menu`)}"]`)?.focus();
 });
 stage.addEventListener("input", (e) => {
   const form = (e.target as HTMLElement).closest<HTMLFormElement>(".qnote");

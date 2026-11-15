@@ -9,7 +9,7 @@
  *   GET  /api/agent/:name/reports
  *   GET  /api/tickets, /api/ticket?project&id
  *   GET  /api/memory?project    parsed entries; the page filters them itself
- *   POST /api/queue/:id/answer  { answer: go | no | redirect, note } back to the asking agent
+ *   POST /api/queue/:id/answer  { answer: go | no | redirect, note, model? } back to the asking agent
  *   POST /api/tickets/start     { project, id } handed to Maya to route
  *   POST /api/upload            an image body; saved to ~/.comb/inbox/, path returned
  *   POST /api/agent/:name/terminal  a terminal tab in the agent's directory running `hive attach <name>`
@@ -28,7 +28,8 @@ import { findClaudeBin, listLiveSessions, runProcess, type LiveSession, type Run
 import { detectHive, HiveClient, listHiveProjects, type HiveSetup, type Ticket } from "../hive";
 import { resolveCombHome } from "../paths";
 import { formatNightly, runNightly } from "../nightly";
-import { answerMessage, readItem, recordAnswer } from "../queue";
+import { isModel, MODELS } from "../models";
+import { answerMessage, answerModel, readItem, recordAnswer } from "../queue";
 import { transcriptPath } from "../transcript";
 import { agentWorkdir, findHiveBin, findRexBin, openInTerminal } from "../terminal";
 import { Tail } from "./feed";
@@ -293,16 +294,19 @@ export function startPage(opts: PageOpts = {}) {
       }),
       "/api/queue/:id/answer": {
         POST: (req) => api(req, async () => {
-          const body = (await req.json().catch(() => null)) as { answer?: unknown; note?: unknown } | null;
+          const body = (await req.json().catch(() => null)) as { answer?: unknown; note?: unknown; model?: unknown } | null;
           const answer = body?.answer;
           const note = typeof body?.note === "string" ? body.note.trim() : "";
           if (answer !== "go" && answer !== "no" && answer !== "redirect") return json({ error: "Answer go, no or redirect." }, 400);
           if (answer === "redirect" && !note) return json({ error: "Say what to do instead." }, 400);
+          if (body?.model != null && !isModel(body.model)) return json({ error: `Pick a model: ${MODELS.join(", ")}.` }, 400);
           const item = await readItem(req.params.id, home);
           if (item.status !== "open") return json({ error: `Already answered (${item.status}).` }, 409);
+          const model = answerModel(item, answer, isModel(body?.model) ? body.model : null, readCombConfig(home).defaultModel);
           // Deliver first: an answer that never reached the agent leaves the item open.
-          const { woke } = await sendToAgent({ name: item.from, message: answerMessage(item, answer, note || null), fromPage: true, home, claudeBin: claude, run });
-          const done = await recordAnswer(item.id, answer, note || null, home);
+          const message = answerMessage(item, answer, note || null, model);
+          const { woke } = await sendToAgent({ name: item.from, message, fromPage: true, home, claudeBin: claude, run });
+          const done = await recordAnswer(item.id, answer, note || null, home, new Date(), model);
           void refresh().catch(() => {});
           return json({ item: done, woke });
         }),

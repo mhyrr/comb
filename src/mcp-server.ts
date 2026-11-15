@@ -11,6 +11,7 @@ import { z } from "zod";
 import { formatAgentList, GREG, listAgents, sendToAgent, startAgent } from "./agents";
 import { human, readCombConfig } from "./config";
 import { findClaudeBin, listLiveSessions } from "./claude";
+import { MODELS } from "./models";
 import { addItem } from "./queue";
 
 /**
@@ -28,7 +29,9 @@ async function caller(): Promise<string | null> {
 }
 
 // How the tools name the human: config.json's userName, else "the user".
-const who = human(readCombConfig());
+const config = readCombConfig();
+const who = human(config);
+const defaultModel = config.defaultModel;
 
 const server = new McpServer(
   { name: "comb", version: "0.2.0" },
@@ -92,11 +95,17 @@ server.registerTool("queue_add", {
     why: z.string().describe("Your case in Markdown: why now, your recommendation, the evidence, what it costs."),
     project: z.string().optional().describe("The project, if there is one."),
     ticket: z.string().optional().describe("The ticket ID, if there is one."),
+    model: z.enum(MODELS).optional().describe(
+      `For an item whose go starts an agent (a proposal, or a review that starts one): the model you recommend. ` +
+      `${who.Name} sees it on the Go button and can change it; the answer names the model to start with. ` +
+      `Omit it to offer the default (${defaultModel}). Never set it on a decision or blocker.`,
+    ),
+    model_why: z.string().optional().describe("With model: why that model, in one line. E.g. 'Mechanical rename across 40 files; sonnet is enough.'"),
   },
-}, async ({ kind, title, action, why, project, ticket }) => {
+}, async ({ kind, title, action, why, project, ticket, model, model_why }) => {
   try {
     const from = (await caller()) ?? "unknown";
-    const item = await addItem({ kind, from, title, action, body: why, project, ticket });
+    const item = await addItem({ kind, from, title, action, body: why, project, ticket, model, modelWhy: model_why });
     return { content: [{ type: "text" as const, text: `Filed ${item.id}. The answer will come to "${from}" as a message.` }] };
   } catch (err) {
     return fail(err);
@@ -116,7 +125,11 @@ server.registerTool("agent_start", {
     prompt: z.string().optional().describe("First message. Defaults to reading its charter and beginning."),
     cwd: z.string().optional().describe("Directory to run in. Defaults to your own working directory."),
     worktree: z.boolean().optional().describe("Create a git worktree and branch for this agent."),
-    model: z.string().optional().describe("Model alias: 'opus' for judgment-heavy roles, 'sonnet' for routine work. Omit for the default."),
+    model: z.string().optional().describe(
+      `Model alias (${MODELS.join(", ")}). When ${who.name}'s go names a model ("Go (model: fable)"), pass exactly that. ` +
+      `Otherwise 'opus' for judgment-heavy roles, 'sonnet' for routine work. Omit it for the default (${defaultModel}). ` +
+      "The agent keeps its model when it wakes.",
+    ),
   },
 }, async ({ name, charter, prompt, cwd, worktree, model }) => {
   try {

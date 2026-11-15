@@ -101,7 +101,7 @@ describe("comb agents", () => {
 
     expect(session).toMatchObject({ name: "acme-api", parent: "greg", cwd: repo, harness: "claude", permissionMode: "auto" });
     expect(JSON.parse(await readFile(join(dir, "session.json"), "utf-8")).sessionId).toBe(session.sessionId);
-    expect(await readFile(join(dir, "log.md"), "utf-8")).toContain(`started by greg in ${repo} (session ${session.id})`);
+    expect(await readFile(join(dir, "log.md"), "utf-8")).toContain(`started by greg in ${repo} (session ${session.id}, model opus)`);
 
     const prompt = await readFile(join(dir, "system-prompt.md"), "utf-8");
     expect(prompt.startsWith(`IDENTITY for ${repo}`)).toBe(true);
@@ -125,7 +125,7 @@ describe("comb agents", () => {
     const dir = agentDir("mobile-app", home);
     expect(bg.argv).toEqual([
       "claude", "--bg", "--mcp-config", join(dir, "mcp.json"),
-      "-n", "mobile-app", "--permission-mode", "auto",
+      "-n", "mobile-app", "--permission-mode", "auto", "--model", "opus",
       "--append-system-prompt-file", join(dir, "system-prompt.md"),
       "Read your charter.md and checklist.md, then begin.",
     ]);
@@ -148,10 +148,27 @@ describe("comb agents", () => {
     expect(bgArgv()[bgArgv().indexOf("--model") + 1]).toBe("opus");
   });
 
-  test("with no model set, no --model flag is passed", async () => {
+  test("with no model named, config.json's defaultModel is used and saved (opus unless set)", async () => {
     const claude = fakeClaude();
-    await startAgent({ name: "plain", charter: "c", cwd: repo, home, claudeBin: "claude", run: claude.run, wait: noWait });
-    expect(claude.calls.find((c) => c.argv[1] === "--bg")!.argv).not.toContain("--model");
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    const modelOf = (name: string) => {
+      const argv = claude.calls.filter((c) => c.argv[1] === "--bg" && c.argv.includes(name)).at(-1)!.argv;
+      return argv[argv.indexOf("--model") + 1];
+    };
+    const plain = await startAgent({ name: "plain", charter: "c", cwd: repo, ...base });
+    expect(modelOf("plain")).toBe("opus");
+    expect(plain.session.model).toBe("opus");
+    expect(JSON.parse(await readFile(join(plain.dir, "settings.json"), "utf-8"))).toEqual({ model: "opus" });
+
+    await writeFile(join(home, "config.json"), JSON.stringify({ defaultModel: "sonnet" }));
+    await startAgent({ name: "routine", charter: "c", cwd: repo, ...base });
+    expect(modelOf("routine")).toBe("sonnet");
+    // A named model wins over the default, and an agent keeps its own model when the default changes.
+    await startAgent({ name: "picked", charter: "c", cwd: repo, model: "fable", ...base });
+    expect(modelOf("picked")).toBe("fable");
+    claude.sessions.length = 0;
+    await sendToAgent({ name: "plain", message: "go", ...base });
+    expect(modelOf("plain")).toBe("opus");
   });
 
   test("a child names its parent and how to reach it", async () => {

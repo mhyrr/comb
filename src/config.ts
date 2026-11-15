@@ -5,7 +5,8 @@
  *     "userName": "Ada",          the human's name, on the page and in agents' instructions
  *     "hive": "auto",             "auto" (use hive when installed), "on" (require it), "off"
  *     "identityFile": "~/me.md",  the identity agents get when hive is off
- *     "nightlyAsks": false        file hive's briefing asks into the queue (§9.3; off by default)
+ *     "nightlyAsks": false,       file hive's briefing asks into the queue (§9.3; off by default)
+ *     "defaultModel": "opus"      the model for delegated work when none is named (D25)
  *   }
  *
  * The human's internal id stays "greg" (GREG in agents.ts) whatever the name:
@@ -15,6 +16,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { DEFAULT_MODEL, isModel, MODELS, type Model } from "./models";
 import { resolveCombHome } from "./paths";
 
 /** What the page calls the human when no userName is set. */
@@ -31,6 +33,8 @@ export type CombConfig = {
   identityFile: string | null;
   /** File the briefing's "What needs your attention" asks with hive's picks. Off unless set to true. */
   nightlyAsks: boolean;
+  /** The model agent_start and the queue's picker use when none is named: one of MODELS, "opus" unless set. */
+  defaultModel: Model;
 };
 
 /** The human as the page shows them: a name, and the letter in the root avatar. */
@@ -64,11 +68,15 @@ export function readCombConfig(home: string = resolveCombHome(), onError?: (msg:
   }
   const file = str(raw.identityFile);
   if (raw.nightlyAsks !== undefined && typeof raw.nightlyAsks !== "boolean") onError?.('"nightlyAsks" must be true or false; using false');
+  if (raw.defaultModel !== undefined && !isModel(raw.defaultModel)) {
+    onError?.(`"defaultModel" must be one of ${MODELS.join(", ")}; using ${DEFAULT_MODEL}`);
+  }
   return {
     userName: str(raw.userName),
     hive,
     identityFile: file ? file.replace(/^~(?=\/|$)/, process.env.HOME || homedir()) : null,
     nightlyAsks: raw.nightlyAsks === true,
+    defaultModel: isModel(raw.defaultModel) ? raw.defaultModel : DEFAULT_MODEL,
   };
 }
 
