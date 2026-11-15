@@ -41,8 +41,12 @@ comb is the work layer: Claude Code background agents, best with hive
   browser code (plain TypeScript, bundled into the binary by Bun).
 - `src/paths.ts`: `~/.comb`.
 - `src/config.ts`: `~/.comb/config.json` (`userName`, `hive`, `nightlyAsks`,
-  `identityFile`) and `renderTemplate` for `templates/`. The human's internal
-  id stays `greg` whatever the name.
+  `identityFile`, `defaultModel`) and `renderTemplate` for `templates/`. The
+  human's internal id stays `greg` whatever the name.
+- `src/models.ts`: the model aliases Greg picks from (D25). One list; no Node
+  imports, because the page's browser code uses it too.
+- `src/page/ui/patch.ts`: keyed updates that keep focus and the reader's
+  place (D26).
 - `templates/`: Maya's charter (rendered at `comb init`) and the default
   identity for agents without hive (bundled into the binary).
 - `scripts/fixture/`: an invented comb world for the README screenshots

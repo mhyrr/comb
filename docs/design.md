@@ -375,6 +375,22 @@ that fills with honey while it works; that is the page's one ambient motion.
 - **Now is the dashboard:** Waiting on you, Working now, Latest from your
   sessions (each one's last words), Priority tickets (open P0 and P1, each
   with Start), Finished work (reports with their first paragraph).
+- **Go carries a model when it starts work (D25, 2026-11-15).** A proposal,
+  or a review whose filer named a model, shows "Go · Opus ▾". The caret
+  lists the models in `src/models.ts` (opus, sonnet, fable); the filer's
+  pick is checked, with its one-line reason. The default is the item's
+  `model` (queue_add's optional `model` and `model_why`), else
+  `defaultModel` in `~/.comb/config.json`, else opus. Greg's pick goes back
+  in the answer, `Go (model: fable): <action>`, with a line telling the
+  agent to pass it to agent_start, and is saved in the item and the
+  precedent. Decisions and blockers get a plain Go and refuse a `model`.
+- **Updates never move what Greg is using (D26, 2026-11-15).** Cards are
+  patched by queue id (`src/page/ui/patch.ts`), not rebuilt; a focused field
+  is carried into new markup as the same node; time text is not a change;
+  the card in view keeps its screen position when rows above it change.
+  While Greg is busy with the queue (focus in it, a note form, case or model
+  menu open, or scrolled past its top), new items wait behind an "N new,
+  show" pill, and come in on click or at the next quiet moment.
 - Not built yet: Maya ranking the queue, and `precedents_search`.
 
 ### 9.3 hive's nightly in the queue (built 2026-11-13)
@@ -547,6 +563,31 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   comb page:" as before. Still open: `hive attach` lives in hive and reads
   `~/.comb`, which D10's one-way rule forbids; moving it into comb as
   `comb attach` is separate work.
+
+- **D25. Greg picks the model when he delegates, on the Go button**
+  (2026-11-15, §9.2). Greg: "When I'm in my own sessions, I'll select the
+  models, but this is only to deal with when I'm telling Maya to delegate
+  something ... or do the model picker when it's on the dashboard things
+  waiting on me part." His normal is Opus, so `defaultModel` (config.json)
+  defaults to opus and agent_start uses it when no model is named; that is
+  now saved to settings.json like a named one (D20), so every agent runs on
+  a known model and keeps it on wakes. The aliases are one list in
+  `src/models.ts`, so a new model is a one-line change, and queue_add and
+  config.json accept only those. No picker in the agent header: Greg picks
+  only when delegating. A review gets the picker only when its filer set a
+  model, because only then does its go start an agent.
+
+- **D26. The page patches; it never rebuilds under the reader** (2026-11-15,
+  §9.2). Greg, typing a "Not now" note: "the focus goes away ... we should
+  never lose focus when we have it", and the note arrived cut short ("Not
+  focu"). Then: "the page moves and the focus moves and everything." Cause:
+  the Now page replaced `#now-queue`'s innerHTML whenever its markup
+  changed, and the "4m ago" tags changed it every minute. Fixed by keyed
+  patching, carrying the focused node, leaving time text out of the diff,
+  holding the reader's place by hand (`overflow-anchor: none`, so Chrome and
+  Safari behave the same), and holding arrivals behind a pill. The side
+  chat composer and the memory filter are built once, so they never had the
+  problem.
 
 ## 11. Open questions
 

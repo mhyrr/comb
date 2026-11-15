@@ -62,7 +62,8 @@ build: it reloads the page onto the new binary.
   "userName": "Ada",
   "hive": "auto",
   "identityFile": "~/notes/me.md",
-  "nightlyAsks": false
+  "nightlyAsks": false,
+  "defaultModel": "opus"
 }
 ```
 
@@ -76,6 +77,11 @@ build: it reloads the page onto the new binary.
 - **`nightlyAsks`**: with hive, `true` also files the "What needs your
   attention" items from hive's daily briefing into the queue, next to the
   nightly ticket picks. Off by default.
+- **`defaultModel`**: the model for work you delegate when nobody names one:
+  `opus` (the default), `sonnet` or `fable`. New agents start on it, and a
+  queue card's "Go · Opus ▾" offers it when the agent that filed the card
+  did not suggest a model. Pick another model from the caret before you
+  press Go.
 
 `comb init` never writes this file.
 
