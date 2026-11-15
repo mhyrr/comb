@@ -7,6 +7,9 @@
  * a queue item from Maya: a pick as a proposal to start a task agent, an ask as
  * a decision. hive never learns that comb exists.
  *
+ * Asks are off unless config.json sets `nightlyAsks: true` (2026-11-15): they
+ * come from Greg's own sessions, and he did not want those decisions here.
+ *
  * Every run is safe to repeat. ~/.comb/nightly/filed.json records each item
  * filed, keyed by project+ticket+selectedAt for a pick and date+text for an
  * ask, so nothing is filed twice.
@@ -15,6 +18,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { readCombConfig } from "./config";
 import { listHiveProjects, parseAttention, readActPicks, readBriefing, readTicketFile, resolveHiveHome, type ActPick } from "./hive";
 import { getCombPaths, resolveCombHome } from "./paths";
 import { addItem, listItems, type QueueItem } from "./queue";
@@ -36,6 +40,8 @@ export type NightlyOpts = {
   /** Report what would be filed; write nothing. */
   dryRun?: boolean;
   maxItems?: number;
+  /** File the briefing's asks too. Defaults to config.json's `nightlyAsks` (false). */
+  asks?: boolean;
 };
 
 type Planned = {
@@ -58,6 +64,8 @@ export type NightlyReport = {
   skipped: NightlyLine[];
   /** Why there is nothing from the briefing, when there is no briefing. */
   briefing: string | null;
+  /** Whether briefing asks were read at all (config.json `nightlyAsks`). */
+  asks: boolean;
 };
 
 type Filed = { at: string; date: string; id: string; kind: "pick" | "ask"; project: string | null };
@@ -145,6 +153,7 @@ export async function runNightly(opts: NightlyOpts = {}): Promise<NightlyReport>
   const now = opts.now ?? new Date();
   const dryRun = opts.dryRun ?? false;
   const max = opts.maxItems ?? MAX_ITEMS_PER_NIGHT;
+  const asksOn = opts.asks ?? readCombConfig(home).nightlyAsks;
   const today = localDate(now);
   const path = stateFile(home);
   const state = await loadState(path);
@@ -152,7 +161,7 @@ export async function runNightly(opts: NightlyOpts = {}): Promise<NightlyReport>
     if (now.getTime() - Date.parse(r.at) > KEEP_RECORD_DAYS * DAY_MS) delete state.filed[k];
   }
   const open = (await listItems(home, 0, now.getTime())).filter((i) => i.status === "open");
-  const report: NightlyReport = { date: today, dryRun, filed: [], deferred: [], skipped: [], briefing: null };
+  const report: NightlyReport = { date: today, dryRun, filed: [], deferred: [], skipped: [], briefing: null, asks: asksOn };
   const filedTonight = Object.values(state.filed).filter((r) => r.date === today);
   /**
    * The same ticket or ask text filed in the last week. hive re-picks a ticket
@@ -190,11 +199,12 @@ export async function runNightly(opts: NightlyOpts = {}): Promise<NightlyReport>
     else picks.push({ key, label, ...planPick(p, ticket!) });
   }
 
-  // Asks: today's briefing only. Yesterday's asks are yesterday's.
+  // Asks: today's briefing only, and only when config.json turns them on.
+  // Yesterday's asks are yesterday's.
   const asks: Planned[] = [];
-  const briefing = readBriefing(today, hiveHome);
-  if (briefing === null) report.briefing = `no briefing for ${today} yet`;
-  const projects = listHiveProjects(hiveHome);
+  const briefing = asksOn ? readBriefing(today, hiveHome) : null;
+  if (asksOn && briefing === null) report.briefing = `no briefing for ${today} yet`;
+  const projects = asksOn ? listHiveProjects(hiveHome) : [];
   parseAttention(briefing ?? "").forEach((text, i) => {
     const label = `ask ${i + 1}`;
     const key = `ask:${today}:${normalize(text)}`;
@@ -269,7 +279,8 @@ export function formatNightly(r: NightlyReport): string {
   section(r.dryRun ? "Would file:" : "Filed:", r.filed, (l) => `${l.label}: ${l.title}${l.id ? `  [${l.id}]` : ""}`);
   section("Deferred:", r.deferred, (l) => `${l.label}: ${l.reason}`);
   section("Skipped:", r.skipped, (l) => `${l.label}${l.title ? ` (${l.title.slice(0, 60)}${l.title.length > 60 ? "…" : ""})` : ""}: ${l.reason}`);
-  if (r.briefing) out.push("", `Briefing: ${r.briefing}`);
+  if (!r.asks) out.push("", "asks: off (set nightlyAsks in config.json)");
+  else if (r.briefing) out.push("", `Briefing: ${r.briefing}`);
   if (!r.filed.length && !r.deferred.length) out.push("", "Nothing new.");
   return out.join("\n");
 }

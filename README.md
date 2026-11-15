@@ -61,7 +61,8 @@ build: it reloads the page onto the new binary.
 {
   "userName": "Ada",
   "hive": "auto",
-  "identityFile": "~/notes/me.md"
+  "identityFile": "~/notes/me.md",
+  "nightlyAsks": false
 }
 ```
 
@@ -72,6 +73,9 @@ build: it reloads the page onto the new binary.
   requires it, so a broken hive install fails loudly. `off` never uses it.
 - **`identityFile`**: without hive, the identity agents get, in place of
   `~/.comb/identity.md`. `{{user}}` in it becomes your name.
+- **`nightlyAsks`**: with hive, `true` also files the "What needs your
+  attention" items from hive's daily briefing into the queue, next to the
+  nightly ticket picks. Off by default.
 
 `comb init` never writes this file.
 
@@ -177,8 +181,8 @@ the repo. With hive installed, comb uses it on its own, and adds:
   Tickets tab shows them across projects, and **Start** hands one to Maya,
   who starts a task agent for it.
 - **Nightly picks:** each hour, the page server files hive's nightly ticket
-  picks and its briefing's asks into the queue (`comb nightly --dry-run`
-  shows what it would file).
+  picks into the queue (`comb nightly --dry-run` shows what it would file).
+  The briefing's asks are filed too only with `nightlyAsks: true`.
 - **Projects:** hive's registry tells each agent which project it is in.
 
 ![Tickets from hive, across projects](docs/img/tickets-dark.png)

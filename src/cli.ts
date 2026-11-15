@@ -27,9 +27,10 @@ Usage:
   comb page                      Open comb's page (http://127.0.0.1:4747). It runs as a
                                  login service; if it is not up, this serves it until stopped
   comb page --serve [--port N]   Serve only (what the service runs). With hive, it also files hive's
-                                 nightly picks and asks into the queue, hourly
-  comb nightly [--dry-run]       With hive: file hive's new Act picks and briefing asks into the queue
-                                 now; --dry-run prints what it would file and why it skips
+                                 nightly picks into the queue, hourly
+  comb nightly [--dry-run]       With hive: file hive's new Act picks into the queue now (briefing asks
+                                 too if config.json sets nightlyAsks); --dry-run prints what it
+                                 would file and why it skips
 
 Agents are Claude Code background sessions. Watch one with: claude attach <id>
 From a Claude session, use the comb MCP tools: agent_list, agent_send, agent_start.`;

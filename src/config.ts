@@ -4,7 +4,8 @@
  *   {
  *     "userName": "Ada",          the human's name, on the page and in agents' instructions
  *     "hive": "auto",             "auto" (use hive when installed), "on" (require it), "off"
- *     "identityFile": "~/me.md"   the identity agents get when hive is off
+ *     "identityFile": "~/me.md",  the identity agents get when hive is off
+ *     "nightlyAsks": false        file hive's briefing asks into the queue (§9.3; off by default)
  *   }
  *
  * The human's internal id stays "greg" (GREG in agents.ts) whatever the name:
@@ -28,6 +29,8 @@ export type CombConfig = {
   hive: HiveMode;
   /** Absolute path, with ~ expanded; null when unset. */
   identityFile: string | null;
+  /** File the briefing's "What needs your attention" asks with hive's picks. Off unless set to true. */
+  nightlyAsks: boolean;
 };
 
 /** The human as the page shows them: a name, and the letter in the root avatar. */
@@ -60,10 +63,12 @@ export function readCombConfig(home: string = resolveCombHome(), onError?: (msg:
     else onError?.(`"hive" must be one of ${HIVE_MODES.join(", ")}; using auto`);
   }
   const file = str(raw.identityFile);
+  if (raw.nightlyAsks !== undefined && typeof raw.nightlyAsks !== "boolean") onError?.('"nightlyAsks" must be true or false; using false');
   return {
     userName: str(raw.userName),
     hive,
     identityFile: file ? file.replace(/^~(?=\/|$)/, process.env.HOME || homedir()) : null,
+    nightlyAsks: raw.nightlyAsks === true,
   };
 }
 

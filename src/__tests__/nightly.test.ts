@@ -68,7 +68,7 @@ async function tonight() {
 
 test("fresh picks become proposals from Maya, asks become decisions, and the rest is skipped with a reason", async () => {
   await tonight();
-  const r = await runNightly({ home, hiveHome, now: NOW });
+  const r = await runNightly({ home, hiveHome, asks: true, now: NOW });
   expect(r.filed.map((f) => f.label)).toEqual(["ask 1", "ask 2", "web-app TK-038", "mobile-app TK-042"]);
   expect(Object.fromEntries(r.skipped.map((s) => [s.label, s.reason]))).toEqual({
     "cli-tool TK-042": "stale: picked 2026-10-21, 23 days ago",
@@ -93,10 +93,41 @@ test("fresh picks become proposals from Maya, asks become decisions, and the res
   expect(ask.body).toContain(`From hive's briefing for ${TODAY}`);
 });
 
+test("asks are off by default: only picks are filed, and the briefing is not read", async () => {
+  await tonight();
+  const r = await runNightly({ home, hiveHome, now: NOW });
+  expect(r.asks).toBe(false);
+  expect(r.filed.map((f) => f.label)).toEqual(["web-app TK-038", "mobile-app TK-042"]);
+  expect(r.skipped.some((s) => s.label.startsWith("ask"))).toBe(false);
+  expect((await listItems(home, 0, NOW.getTime())).every((i) => i.kind === "proposal")).toBe(true);
+  const text = formatNightly(await runNightly({ home, hiveHome, now: NOW, dryRun: true }));
+  expect(text).toContain("asks: off (set nightlyAsks in config.json)");
+  expect(text).not.toContain("Briefing:");
+});
+
+test("nightlyAsks: true in config.json turns asks on; picks are the same either way", async () => {
+  await tonight();
+  const off = await runNightly({ home, hiveHome, now: NOW, dryRun: true });
+  await writeFile(join(home, "config.json"), JSON.stringify({ nightlyAsks: true }));
+  const on = await runNightly({ home, hiveHome, now: NOW, dryRun: true });
+  expect(on.asks).toBe(true);
+  expect(on.filed.map((f) => f.label)).toEqual(["ask 1", "ask 2", "web-app TK-038", "mobile-app TK-042"]);
+  expect(formatNightly(on)).not.toContain("asks: off");
+  const picksOf = (r: typeof on) => ({
+    filed: r.filed.filter((f) => !f.label.startsWith("ask")),
+    skipped: r.skipped.filter((s) => !s.label.startsWith("ask")),
+    deferred: r.deferred,
+  });
+  expect(picksOf(on)).toEqual(picksOf(off));
+  // A non-boolean value is not "on".
+  await writeFile(join(home, "config.json"), JSON.stringify({ nightlyAsks: "yes" }));
+  expect((await runNightly({ home, hiveHome, now: NOW, dryRun: true })).asks).toBe(false);
+});
+
 test("a second run files nothing: each pick and ask is recorded once", async () => {
   await tonight();
-  await runNightly({ home, hiveHome, now: NOW });
-  const again = await runNightly({ home, hiveHome, now: new Date(NOW.getTime() + 3600_000) });
+  await runNightly({ home, hiveHome, asks: true, now: NOW });
+  const again = await runNightly({ home, hiveHome, asks: true, now: new Date(NOW.getTime() + 3600_000) });
   expect(again.filed).toEqual([]);
   expect(again.skipped.filter((s) => s.reason!.startsWith("already filed")).map((s) => s.label)).toEqual(["web-app TK-038", "mobile-app TK-042", "ask 1", "ask 2"]);
   const items = await listItems(home, 0, NOW.getTime());
@@ -105,7 +136,7 @@ test("a second run files nothing: each pick and ask is recorded once", async () 
 
   // Once Greg answers, the item is no longer open, and it is still not refiled.
   for (const i of items) await recordAnswer(i.id, "no", null, home);
-  const after = await runNightly({ home, hiveHome, now: new Date(NOW.getTime() + 2 * 3600_000) });
+  const after = await runNightly({ home, hiveHome, asks: true, now: new Date(NOW.getTime() + 2 * 3600_000) });
   expect(after.filed).toEqual([]);
 });
 
@@ -113,14 +144,14 @@ test("a re-pick of the same ticket, or a repeated ask, does not come back for a 
   await ticket("mobile-app", "TK-042");
   await picks([{ projectId: "mobile-app", ticketId: "TK-042", selectedAt: daysAgo(0.3) }]);
   await briefing(TODAY, ["**mobile-app:** decide the release version scheme."]);
-  const first = await runNightly({ home, hiveHome, now: NOW });
+  const first = await runNightly({ home, hiveHome, asks: true, now: NOW });
   for (const i of await listItems(home, 0, NOW.getTime())) await recordAnswer(i.id, "no", "Not now.", home);
 
   // hive re-selects the same ticket with a new selectedAt; tomorrow's briefing repeats the ask.
   const tomorrow = new Date(NOW.getTime() + 24 * 3600_000);
   await picks([{ projectId: "mobile-app", ticketId: "TK-042", selectedAt: new Date(tomorrow.getTime() - 3600_000).toISOString() }]);
   await briefing(localDate(tomorrow), ["**mobile-app:** decide the release version scheme."]);
-  const again = await runNightly({ home, hiveHome, now: tomorrow });
+  const again = await runNightly({ home, hiveHome, asks: true, now: tomorrow });
   expect(first.filed.length).toBe(2);
   expect(again.filed).toEqual([]);
   expect(again.skipped.map((s) => s.reason)).toEqual([expect.stringMatching(/^already filed/), expect.stringMatching(/^already filed/)]);
@@ -128,7 +159,7 @@ test("a re-pick of the same ticket, or a repeated ask, does not come back for a 
   // After a week, a ticket hive still picks is asked again.
   const later = new Date(NOW.getTime() + 8 * 24 * 3600_000);
   await picks([{ projectId: "mobile-app", ticketId: "TK-042", selectedAt: new Date(later.getTime() - 3600_000).toISOString() }]);
-  expect((await runNightly({ home, hiveHome, now: later })).filed.map((f) => f.label)).toEqual(["mobile-app TK-042"]);
+  expect((await runNightly({ home, hiveHome, asks: true, now: later })).filed.map((f) => f.label)).toEqual(["mobile-app TK-042"]);
 });
 
 test("an open queue item on the same ticket blocks a pick; the same id in another project does not", async () => {
@@ -142,7 +173,7 @@ test("an open queue item on the same ticket blocks a pick; the same id in anothe
   ]);
   await addItem({ kind: "proposal", from: "maya", title: "Fix the dark print (TK-042)", action: "x", project: "mobile-app" }, home);
   await addItem({ kind: "proposal", from: "maya", title: "Admin PDF download", action: "x", project: "acme-api", ticket: "TK-153" }, home);
-  const r = await runNightly({ home, hiveHome, now: NOW });
+  const r = await runNightly({ home, hiveHome, asks: true, now: NOW });
   expect(r.filed.map((f) => f.label)).toEqual(["cli-tool TK-042"]);
   expect(r.skipped.map((s) => s.reason)).toEqual([
     expect.stringMatching(/^already open in the queue: .*fix-the-dark-print/),
@@ -154,18 +185,18 @@ test("the cap gives asks the room; excess picks wait for tomorrow, excess asks d
   for (const p of ["a", "b", "c"]) await ticket(p, "TK-001");
   await picks(["a", "b", "c"].map((p, i) => ({ projectId: p, ticketId: "TK-001", selectedAt: daysAgo(0.1 * (i + 1)) })));
   await briefing(TODAY, ["One.", "Two.", "Three."]);
-  const r = await runNightly({ home, hiveHome, now: NOW, maxItems: 4 });
+  const r = await runNightly({ home, hiveHome, asks: true, now: NOW, maxItems: 4 });
   expect(r.filed.map((f) => f.label)).toEqual(["ask 1", "ask 2", "ask 3", "a TK-001"]);
   expect(r.deferred.map((d) => d.label)).toEqual(["b TK-001", "c TK-001"]);
   expect(r.deferred[0]!.reason).toContain("refiled tomorrow");
 
   // Later the same night: the cap still holds.
-  const later = await runNightly({ home, hiveHome, now: new Date(NOW.getTime() + 3600_000), maxItems: 4 });
+  const later = await runNightly({ home, hiveHome, asks: true, now: new Date(NOW.getTime() + 3600_000), maxItems: 4 });
   expect(later.filed).toEqual([]);
   expect(later.deferred.map((d) => d.label)).toEqual(["b TK-001", "c TK-001"]);
 
   // The next night the deferred picks are filed; yesterday's asks are not reread.
-  const tomorrow = await runNightly({ home, hiveHome, now: new Date(NOW.getTime() + 24 * 3600_000), maxItems: 4 });
+  const tomorrow = await runNightly({ home, hiveHome, asks: true, now: new Date(NOW.getTime() + 24 * 3600_000), maxItems: 4 });
   expect(tomorrow.filed.map((f) => f.label)).toEqual(["b TK-001", "c TK-001"]);
   expect(tomorrow.briefing).toContain("no briefing for");
 });
@@ -174,18 +205,18 @@ test("one pick per project a night: a second pick for the same project waits", a
   await ticket("mobile-app", "TK-042");
   await ticket("mobile-app", "TK-043");
   await picks([{ projectId: "mobile-app", ticketId: "TK-042", selectedAt: daysAgo(0.3) }]);
-  await runNightly({ home, hiveHome, now: NOW });
+  await runNightly({ home, hiveHome, asks: true, now: NOW });
   await picks([{ projectId: "mobile-app", ticketId: "TK-043", selectedAt: daysAgo(0.01) }]);
-  const r = await runNightly({ home, hiveHome, now: NOW });
+  const r = await runNightly({ home, hiveHome, asks: true, now: NOW });
   expect(r.filed).toEqual([]);
   expect(r.skipped[0]).toMatchObject({ label: "mobile-app TK-043", reason: expect.stringContaining("one pick per project") });
-  const next = await runNightly({ home, hiveHome, now: new Date(NOW.getTime() + 24 * 3600_000) });
+  const next = await runNightly({ home, hiveHome, asks: true, now: new Date(NOW.getTime() + 24 * 3600_000) });
   expect(next.filed.map((f) => f.label)).toEqual(["mobile-app TK-043"]);
 });
 
 test("a dry run reports and writes nothing", async () => {
   await tonight();
-  const r = await runNightly({ home, hiveHome, now: NOW, dryRun: true });
+  const r = await runNightly({ home, hiveHome, asks: true, now: NOW, dryRun: true });
   expect(r.filed.length).toBe(4);
   expect(existsSync(join(home, "queue"))).toBe(false);
   expect(existsSync(stateFile(home))).toBe(false);
@@ -193,7 +224,7 @@ test("a dry run reports and writes nothing", async () => {
 });
 
 test("no hive output yet means nothing to file, not an error", async () => {
-  const r = await runNightly({ home, hiveHome, now: NOW });
+  const r = await runNightly({ home, hiveHome, asks: true, now: NOW });
   expect(r.filed).toEqual([]);
   expect(formatNightly(r)).toContain("Nothing new.");
 });

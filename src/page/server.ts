@@ -49,7 +49,7 @@ export type PageOpts = {
   rexBin?: string | null;
   /** The hive CLI; null means hive is not installed. Found when omitted. */
   hiveBin?: string | null;
-  /** File hive's nightly picks and asks into the queue on start and at this interval. Off when unset, and without hive. */
+  /** File hive's nightly picks (and asks, if on) into the queue on start and at this interval. Off when unset, and without hive. */
   nightlyMs?: number;
 };
 

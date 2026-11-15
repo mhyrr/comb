@@ -29,7 +29,7 @@ comb is the work layer: Claude Code background agents, best with hive
 - `src/mcp-server.ts`: comb-mcp (`agent_list`, `agent_send`, `agent_start`,
   `queue_add`).
 - `src/queue.ts`: the queue (`~/.comb/queue/`) and precedents.
-- `src/nightly.ts`: files hive's nightly picks and asks into the queue
+- `src/nightly.ts`: files hive's nightly picks (and asks, with `nightlyAsks`) into the queue
   (`comb nightly`, and hourly from the page server).
 - `src/agents.ts`: workspaces, the start path, the core contract.
 - `src/claude.ts`: the Claude Code adapter (`--bg`, `claude agents --json`).
@@ -40,7 +40,7 @@ comb is the work layer: Claude Code background agents, best with hive
   `state.ts` the tree snapshot, `feed.ts` the transcript tail, `ui/` the
   browser code (plain TypeScript, bundled into the binary by Bun).
 - `src/paths.ts`: `~/.comb`.
-- `src/config.ts`: `~/.comb/config.json` (`userName`, `hive`,
+- `src/config.ts`: `~/.comb/config.json` (`userName`, `hive`, `nightlyAsks`,
   `identityFile`) and `renderTemplate` for `templates/`. The human's internal
   id stays `greg` whatever the name.
 - `templates/`: Maya's charter (rendered at `comb init`) and the default

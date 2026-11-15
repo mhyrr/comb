@@ -393,7 +393,11 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   title>`; action `Maya starts task agent <project>-<ticket> on <project>
   <ticket>.`; the case is hive's rationale. On Go, the answer reaches Maya,
   who starts the task agent (D21).
-- **An attention item becomes a decision.** The title is the item's text;
+- **Asks are off by default (2026-11-15).** Only with `nightlyAsks: true`
+  in `~/.comb/config.json` does comb read the briefing at all; without it,
+  `comb nightly --dry-run` prints `asks: off (set nightlyAsks in
+  config.json)` in place of the asks. See D23.
+- **An attention item becomes a decision** (when asks are on). The title is the item's text;
   the action is that Maya acts on Greg's answer. Go means carry it out as
   written; Redirect carries his answer. The project comes from the bold lead
   (`**acme-api:**`), the ticket from the first `TK-n` in the text.
@@ -511,6 +515,13 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   whatever hive wrote within the hour and needs no second plist. The cost:
   no page server, no filing, which is the same condition under which Greg
   could not see the queue anyway.
+  - 2026-11-15: briefing asks are off by default; `nightlyAsks: true` in
+    `~/.comb/config.json` turns them back on, and the parsing code stays.
+    The asks come from Greg's own sessions (essay edits, fact checks). He
+    declined two in a row ("Part 3 contradiction", "Part 1 publish
+    blockers") and said: "Not sure I want decision stuff from ongoing
+    sessions like this." Act picks are unchanged: same caps, the 7-day
+    rule, the stale and closed skips.
 
 - **D24. comb runs on plain Claude Code; hive is the recommended adapter**
   (2026-11-14, `docs/standalone-decision.md`). Greg: "if hive is installed, I

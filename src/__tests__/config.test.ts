@@ -21,23 +21,24 @@ const write = (o: unknown) => writeFile(join(home, "config.json"), typeof o === 
 
 describe("readCombConfig", () => {
   test("no config.json: no name, hive auto, no identity file", () => {
-    expect(readCombConfig(home)).toEqual({ userName: null, hive: "auto", identityFile: null });
+    expect(readCombConfig(home)).toEqual({ userName: null, hive: "auto", identityFile: null, nightlyAsks: false });
     expect(DEFAULT_USER_NAME).toBe("You");
   });
 
-  test("reads userName (trimmed), hive and identityFile (with ~ expanded)", async () => {
-    await write({ userName: "  Ada ", hive: "off", identityFile: "~/me.md" });
+  test("reads userName (trimmed), hive, identityFile (with ~ expanded) and nightlyAsks", async () => {
+    await write({ userName: "  Ada ", hive: "off", identityFile: "~/me.md", nightlyAsks: true });
     const c = readCombConfig(home);
     expect(c.userName).toBe("Ada");
     expect(c.hive).toBe("off");
     expect(c.identityFile).toBe(join(process.env.HOME!, "me.md"));
+    expect(c.nightlyAsks).toBe(true);
   });
 
-  test("blank or wrong-typed values fall back, and a bad hive value is reported", async () => {
-    await write({ userName: "  ", hive: "maybe", identityFile: 3 });
+  test("blank or wrong-typed values fall back, and a bad hive or nightlyAsks value is reported", async () => {
+    await write({ userName: "  ", hive: "maybe", identityFile: 3, nightlyAsks: "yes" });
     const errors: string[] = [];
-    expect(readCombConfig(home, (m) => errors.push(m))).toEqual({ userName: null, hive: "auto", identityFile: null });
-    expect(errors).toEqual(['"hive" must be one of auto, on, off; using auto']);
+    expect(readCombConfig(home, (m) => errors.push(m))).toEqual({ userName: null, hive: "auto", identityFile: null, nightlyAsks: false });
+    expect(errors).toEqual(['"hive" must be one of auto, on, off; using auto', '"nightlyAsks" must be true or false; using false']);
   });
 
   test("COMB_HIVE overrides the file", async () => {
@@ -58,7 +59,7 @@ describe("readCombConfig", () => {
 });
 
 test("names: the page says You, prompts say the user, a set name is used everywhere", () => {
-  const unset = { userName: null, hive: "auto" as const, identityFile: null };
+  const unset = { userName: null, hive: "auto" as const, identityFile: null, nightlyAsks: false };
   expect(userLabel(unset)).toEqual({ name: "You", initial: "Y" });
   expect(human(unset)).toEqual({ name: "the user", Name: "The user" });
   const set = { ...unset, userName: "greg" };
