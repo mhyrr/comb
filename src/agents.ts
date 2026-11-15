@@ -9,7 +9,7 @@ import { execSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 import IDENTITY_TEMPLATE from "../templates/identity.md" with { type: "text" };
 import { human, readCombConfig, renderTemplate, type CombConfig, type Human } from "./config";
@@ -208,7 +208,30 @@ async function writeMcpConfig(dir: string, name: string, home: string): Promise<
 export async function readAgentSession(name: string, home: string = resolveCombHome()): Promise<AgentSession | null> {
   const path = join(agentDir(name, home), "session.json");
   if (!existsSync(path)) return null;
-  return JSON.parse(await readFile(path, "utf-8")) as AgentSession;
+  const session = JSON.parse(await readFile(path, "utf-8")) as AgentSession;
+  // Starts before TK-002 could record <worktree>/.claude/worktrees/<name>.
+  // When that path is missing and the worktree is there, record the worktree.
+  if (session.worktree && session.cwd && !existsSync(session.cwd)) {
+    const repaired = undoubleWorktree(session.cwd, session.name ?? name);
+    if (repaired !== session.cwd && existsSync(repaired)) {
+      session.cwd = repaired;
+      await writeFile(path, JSON.stringify(session, null, 2) + "\n", "utf-8");
+    }
+  }
+  return session;
+}
+
+/** `<repo>/.claude/worktrees/<name>`, whether `cwd` is the repo or already the worktree. */
+export function worktreeCwd(cwd: string, name: string): string {
+  const suffix = join(".claude", "worktrees", name);
+  return cwd.endsWith(sep + suffix) ? cwd : join(cwd, suffix);
+}
+
+function undoubleWorktree(cwd: string, name: string): string {
+  const suffix = sep + join(".claude", "worktrees", name);
+  let out = cwd;
+  while (out.endsWith(suffix + suffix)) out = out.slice(0, -suffix.length);
+  return out;
 }
 
 export type StartAgentOpts = {
@@ -359,9 +382,9 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
     sessionId: started.sessionId,
     parent,
     project,
-    // A new worktree session moves into <repo>/.claude/worktrees/<name> after
-    // it is listed; record that, so a wake resumes it there.
-    cwd: !resume && opts.worktree ? join(started.cwd, ".claude", "worktrees", name) : started.cwd,
+    // A new worktree session moves into <repo>/.claude/worktrees/<name>,
+    // before or after it is listed; record that, so a wake resumes it there.
+    cwd: !resume && opts.worktree ? worktreeCwd(started.cwd, name) : started.cwd,
     worktree: previous?.worktree ?? !!opts.worktree,
     permissionMode,
     model,

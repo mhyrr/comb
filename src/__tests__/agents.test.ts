@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { agentDir, agentPreamble, listAgents, sendToAgent, startAgent, validateAgentName } from "../agents";
+import { agentDir, agentPreamble, listAgents, readAgentSession, sendToAgent, startAgent, validateAgentName } from "../agents";
 import { buildStartArgv, childEnv, parseBackgrounded, type LiveSession, type Run } from "../claude";
 import { projectForDir, type HiveSetup } from "../hive";
 import { incoming } from "../transcript";
@@ -20,6 +20,9 @@ function fakeClaude(initial: LiveSession[] = []) {
   let relayReply = "SENT";
   let next = 0;
   let bgOutput: ((id: string, name: string) => { code: number; stdout: string; stderr: string }) | null = null;
+  // Claude Code moves a -w session into its worktree; when that lands before
+  // `agents --json` lists it, the listed cwd is already the worktree.
+  let movedBeforeListing = false;
   const run: Run = async (argv, opts) => {
     calls.push({ argv, cwd: opts.cwd, env: opts.env, stdin: opts.stdin });
     if (argv[1] === "-p") return { code: 0, stdout: `${relayReply}\n`, stderr: "" };
@@ -38,7 +41,8 @@ function fakeClaude(initial: LiveSession[] = []) {
       const sessionId = resumeAt >= 0 ? argv[resumeAt + 1]! : `${id}-0000-0000-0000-000000000000`;
       const at = sessions.findIndex((s) => s.sessionId === sessionId);
       if (at >= 0) sessions.splice(at, 1);
-      sessions.push({ id, sessionId, name, cwd: opts.cwd, state: "working" });
+      const moved = movedBeforeListing && argv.includes("-w");
+      sessions.push({ id, sessionId, name, cwd: moved ? join(opts.cwd, ".claude", "worktrees", name) : opts.cwd, state: "working" });
       return { code: 0, stdout: `backgrounded · ${id} · ${name}\n`, stderr: "" };
     }
     throw new Error(`unexpected claude call: ${argv.join(" ")}`);
@@ -46,6 +50,7 @@ function fakeClaude(initial: LiveSession[] = []) {
   return {
     run, calls, sessions,
     failBg: (f: typeof bgOutput) => { bgOutput = f; },
+    moveBeforeListing: () => { movedBeforeListing = true; },
     failIdentity: () => { identity = { code: 1, stdout: "", stderr: "no hive" }; },
     relayReplies: (text: string) => { relayReply = text; },
   };
@@ -426,6 +431,42 @@ describe("comb agents", () => {
     const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
     const { session } = await startAgent({ name: "comb-status-text", charter: "c", cwd: repo, worktree: true, parent: "maya", ...base });
     expect(session.cwd).toBe(join(repo, ".claude", "worktrees", "comb-status-text"));
+  });
+
+  test("a worktree agent listed after it moved records its worktree once (TK-002)", async () => {
+    const claude = fakeClaude();
+    claude.moveBeforeListing();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    const { session } = await startAgent({ name: "seodash-tk-039", charter: "c", cwd: repo, worktree: true, parent: "maya", ...base });
+    expect(session.cwd).toBe(join(repo, ".claude", "worktrees", "seodash-tk-039"));
+  });
+
+  test("a doubled worktree cwd is repaired when read, so a wake works (TK-002)", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    const worktree = join(repo, ".claude", "worktrees", "seodash-tk-039");
+    await mkdir(worktree, { recursive: true });
+    const { session } = await startAgent({ name: "seodash-tk-039", charter: "c", cwd: repo, worktree: true, parent: "maya", ...base });
+    // What a start that hit the doubling bug left behind.
+    const file = join(agentDir("seodash-tk-039", home), "session.json");
+    const doubled = join(worktree, ".claude", "worktrees", "seodash-tk-039");
+    await writeFile(file, JSON.stringify({ ...session, cwd: doubled }, null, 2) + "\n");
+    claude.sessions[0] = { ...claude.sessions[0]!, kind: "background", state: "blocked", status: undefined };
+
+    expect((await readAgentSession("seodash-tk-039", home))!.cwd).toBe(worktree);
+    expect(JSON.parse(await readFile(file, "utf-8")).cwd).toBe(worktree);
+    await sendToAgent({ name: "seodash-tk-039", message: "sign off", from: "maya", ...base });
+    expect(claude.calls.filter((c) => c.argv[1] === "--bg").at(-1)!.cwd).toBe(worktree);
+  });
+
+  test("a missing cwd that is not a doubled worktree is left alone", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    const { session } = await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    const file = join(agentDir("maya", home), "session.json");
+    const gone = join(root, "gone");
+    await writeFile(file, JSON.stringify({ ...session, cwd: gone }, null, 2) + "\n");
+    expect((await readAgentSession("maya", home))!.cwd).toBe(gone);
   });
 
   test("waking an agent with a message logs who sent it", async () => {
