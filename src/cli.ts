@@ -22,6 +22,8 @@ Usage:
                                  install (or reload) the service that keeps the page up
   comb start <name> --charter "<text>" [--cwd DIR] [--worktree] [--model M] [--prompt "<text>"]
   comb start <name> --charter-file PATH [...]
+  comb start <name> [--fresh]    Restart an agent from its workspace; --fresh starts a new
+                                 conversation instead of resuming (after a comb upgrade)
   comb list                      The roster: each agent, working or ready, what it is for
   comb send <name> "<message>"   Message an agent; an asleep one wakes with it
   comb page                      Open comb's page (http://127.0.0.1:4747). It runs as a
@@ -113,7 +115,7 @@ async function pageIsUp(url: string): Promise<boolean> {
 async function parseStart(args: string[]) {
   const name = args[0];
   if (!name || name.startsWith("-")) throw new UsageError(usage);
-  const opts: { name: string; charter?: string; cwd?: string; worktree?: boolean; prompt?: string; model?: string } = { name };
+  const opts: { name: string; charter?: string; cwd?: string; worktree?: boolean; prompt?: string; model?: string; fresh?: boolean } = { name };
   for (let i = 1; i < args.length; i++) {
     const flag = args[i]!;
     const value = () => {
@@ -127,6 +129,7 @@ async function parseStart(args: string[]) {
     else if (flag === "--prompt") opts.prompt = value();
     else if (flag === "--worktree") opts.worktree = true;
     else if (flag === "--model") opts.model = value();
+    else if (flag === "--fresh") opts.fresh = true;
     else throw new UsageError(`Unknown flag: ${flag}\n\n${usage}`);
   }
   return opts;

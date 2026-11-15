@@ -226,6 +226,12 @@ export type StartAgentOpts = {
    * config.json's defaultModel. Saved to settings.json, so restarts keep it.
    */
   model?: string;
+  /**
+   * Start a new conversation from the workspace instead of resuming the last
+   * one (D27). A live session with this name is stopped first. Use after a
+   * comb upgrade: a resumed conversation keeps the tool schemas it loaded.
+   */
+  fresh?: boolean;
   claudeBin?: string;
   run?: Run;
   wait?: (ms: number) => Promise<void>;
@@ -281,16 +287,12 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
   // An ended session stays listed (as "done", or as a stale "blocked" after
   // the daemon retires it); only a live one with this name is a clash.
   const live = await listLiveSessions(claude, run);
+  const fresh = exists && !!opts.fresh;
   const clash = live.find((s) => s.name === name && !isEnded(s));
-  if (clash) {
+  if (clash && !fresh) {
     throw new UsageError(
       `A session named "${name}" is already running (${clash.id}, ${clash.cwd}). Message it with SendMessage instead.`,
     );
-  }
-  // A finished session can keep its process (state done, with a pid). Stop it,
-  // so the new one is the only session with this name.
-  for (const stale of live.filter((s) => s.name === name && s.pid && isEnded(s))) {
-    await stopSession(claude, stale.id, run);
   }
 
   const cwd = resolve(expandHome(opts.cwd ?? previous?.cwd ?? process.cwd()));
@@ -325,7 +327,16 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
   }
 
   // A previous session that died keeps its history; wake it rather than lose it.
-  const resume = previous && previous.cwd === cwd ? previous.sessionId : undefined;
+  // A fresh start does not, so it loads the tool schemas comb has now (D27).
+  const resume = !fresh && previous && previous.cwd === cwd ? previous.sessionId : undefined;
+  // A finished session can keep its process (state done, with a pid). Stop it,
+  // so the new one is the only session with this name. A fresh start also
+  // stops a live one: it replaces that conversation. Done last, after
+  // every check, so a failed start never leaves the agent stopped.
+  for (const stale of live.filter((s) => s.name === name && (fresh ? !isEnded(s) || !!s.pid : !!s.pid && isEnded(s)))) {
+    await stopSession(claude, stale.id, run);
+  }
+
   let started;
   try {
     started = await startBackground(
@@ -357,7 +368,7 @@ export async function startAgent(opts: StartAgentOpts): Promise<StartAgentResult
     startedAt: new Date().toISOString(),
   };
   await writeFile(join(dir, "session.json"), JSON.stringify(session, null, 2) + "\n", "utf-8");
-  const verb = ranBefore ? (resume ? "resumed" : "restarted") : "started";
+  const verb = ranBefore ? (resume ? "resumed" : fresh ? "restarted fresh" : "restarted") : "started";
   await appendFile(
     join(dir, "log.md"),
     `- ${session.startedAt} ${verb} by ${parent} in ${session.cwd} (session ${session.id}, model ${model})\n`,

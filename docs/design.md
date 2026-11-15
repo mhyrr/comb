@@ -223,7 +223,9 @@ appear, and nothing leaks into Greg's other sessions.
 5. records `session.json` and a log line.
 
 Starting an existing agent without a charter resumes its last session, so
-its history survives.
+its history survives. With `fresh` (`agent_start`) or `--fresh` (`comb
+start`), it starts a new conversation from the workspace instead, stopping
+the old session first if it is live (D27).
 
 **Talk.** Messages ride the harness (D6): agents use Claude Code's
 `SendMessage` by name. A child tells its parent it finished, is stuck, has a
@@ -604,6 +606,21 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   Safari behave the same), and holding arrivals behind a pill. The side
   chat composer and the memory filter are built once, so they never had the
   problem.
+
+- **D27. A fresh start replaces the conversation, not the agent**
+  (2026-11-15, §6). A resumed conversation keeps the tool schemas it loaded
+  at its first start, so after a comb upgrade an agent never sees new tool
+  fields: Maya could not pass `model` to agent_start or queue_add although
+  the installed comb-mcp listed both. `agent_start` takes `fresh` (and
+  `comb start` takes `--fresh`): no `--resume`; the agent gets the restart
+  prompt (charter, checklist, memory/, the end of log.md), session.json
+  records the new session, and log.md says "restarted fresh". A live session
+  with the name is stopped first, so two sessions never share a name; the
+  stop comes after every other check, so a failed start leaves the old one
+  running. The default stays resume: history is worth keeping, and fresh
+  costs the agent its conversation. agent_start refuses a fresh start of the
+  calling agent itself, because the stop would end the call; Greg runs
+  `comb start <name> --fresh` for that.
 
 ## 11. Open questions
 

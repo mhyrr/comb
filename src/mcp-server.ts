@@ -118,10 +118,13 @@ server.registerTool("agent_start", {
     "with you as its parent. Use it for a job that should run on its own and report back, not for a quick " +
     "lookup (use your harness's sub-agents for that). Name it <project>-<job>, e.g. 'acme-api-tk109-backtest'. " +
     "The charter carries the context: the ticket, what done means, and where the design docs and memory are. " +
-    "Set worktree when it will edit code. For a follow-up on a job that already has an agent, use agent_send.",
+    "Set worktree when it will edit code. For a follow-up on a job that already has an agent, use agent_send. " +
+    "To restart an existing agent in a new conversation, pass its name and fresh, with no charter.",
   inputSchema: {
     name: z.string().describe("Lowercase name, e.g. 'rate-limiter'."),
-    charter: z.string().describe("What the agent is for, in prose: its scope and what done looks like."),
+    charter: z.string().optional().describe(
+      "What the agent is for, in prose: its scope and what done looks like. Required for a new agent; omit it for an existing one.",
+    ),
     prompt: z.string().optional().describe("First message. Defaults to reading its charter and beginning."),
     cwd: z.string().optional().describe("Directory to run in. Defaults to your own working directory."),
     worktree: z.boolean().optional().describe("Create a git worktree and branch for this agent."),
@@ -130,15 +133,25 @@ server.registerTool("agent_start", {
       `Otherwise 'opus' for judgment-heavy roles, 'sonnet' for routine work. Omit it for the default (${defaultModel}). ` +
       "The agent keeps its model when it wakes.",
     ),
+    fresh: z.boolean().optional().describe(
+      "For an existing agent: start a new conversation from its workspace (charter, checklist, memory/, log.md) " +
+      "instead of resuming the old one, and stop the old session if it is live. Use after a comb upgrade, so the " +
+      "agent loads new tool schemas. Default: resume.",
+    ),
   },
-}, async ({ name, charter, prompt, cwd, worktree, model }) => {
+}, async ({ name, charter, prompt, cwd, worktree, model, fresh }) => {
   try {
     const parent = process.env.COMB_AGENT || GREG;
-    const { session, dir } = await startAgent({ name, charter, prompt, cwd, worktree, parent, model });
+    // Stopping the caller's own session would end this call before the new one starts.
+    if (fresh && name === process.env.COMB_AGENT) {
+      throw new Error(`An agent cannot restart itself fresh. Ask ${who.name} to run: comb start ${name} --fresh`);
+    }
+    const { session, dir, restarted } = await startAgent({ name, charter, prompt, cwd, worktree, parent, model, fresh });
+    const verb = restarted ? (fresh ? "Restarted fresh" : "Restarted") : "Started";
     return {
       content: [{
         type: "text" as const,
-        text: `Started ${session.name} in ${session.cwd}. Workspace: ${dir}. Message it with agent_send to "${session.name}".`,
+        text: `${verb} ${session.name} in ${session.cwd}. Workspace: ${dir}. Message it with agent_send to "${session.name}".`,
       }],
     };
   } catch (err) {

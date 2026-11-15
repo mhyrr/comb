@@ -215,6 +215,54 @@ describe("comb agents", () => {
     expect(await readFile(join(agentDir("billing", home), "log.md"), "utf-8")).toContain("resumed by greg");
   });
 
+  test("a fresh restart starts a new conversation from the workspace and records it", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    const first = await startAgent({ name: "billing", charter: "c", cwd: repo, ...base });
+    claude.sessions[0]!.state = "done";
+
+    const second = await startAgent({ name: "billing", fresh: true, ...base });
+    expect(second.restarted).toBe(true);
+    const bg = claude.calls.filter((c) => c.argv[1] === "--bg").at(-1)!;
+    expect(bg.cwd).toBe(repo);
+    expect(bg.argv).not.toContain("--resume");
+    expect(bg.argv.at(-1)).toContain("Read charter.md, checklist.md, memory/ and the end of log.md");
+    expect(second.session.sessionId).not.toBe(first.session.sessionId);
+    const saved = JSON.parse(await readFile(join(agentDir("billing", home), "session.json"), "utf-8"));
+    expect(saved.sessionId).toBe(second.session.sessionId);
+    expect(saved.cwd).toBe(repo);
+    expect(await readFile(join(agentDir("billing", home), "log.md"), "utf-8")).toContain("restarted fresh by greg");
+  });
+
+  test("a fresh restart stops the agent's live session, so the name stays unique", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    const first = await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    // Still on a turn: without fresh, this start is refused.
+    await expect(startAgent({ name: "maya", ...base })).rejects.toThrow("already running");
+
+    await startAgent({ name: "maya", fresh: true, ...base });
+    expect(claude.calls.find((c) => c.argv[1] === "stop")!.argv).toEqual(["claude", "stop", first.session.id]);
+    expect(claude.sessions.filter((s) => s.name === "maya")).toHaveLength(1);
+    expect(claude.sessions[0]!.sessionId).not.toBe(first.session.sessionId);
+  });
+
+  test("a fresh restart that fails its checks leaves the live session running", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    await expect(startAgent({ name: "maya", fresh: true, cwd: join(root, "gone"), ...base })).rejects.toThrow("does not exist");
+    expect(claude.calls.filter((c) => c.argv[1] === "stop")).toHaveLength(0);
+  });
+
+  test("fresh on a new agent is an ordinary first start", async () => {
+    const claude = fakeClaude();
+    const { session } = await startAgent({
+      name: "billing", charter: "c", cwd: repo, fresh: true, home, claudeBin: "claude", run: claude.run, wait: noWait,
+    });
+    expect(await readFile(join(agentDir("billing", home), "log.md"), "utf-8")).toContain(`started by greg in ${repo} (session ${session.id}`);
+  });
+
   test("a session the daemon retired for idling is listed as done and resumes", async () => {
     const claude = fakeClaude();
     const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };

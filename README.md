@@ -112,7 +112,12 @@ comb start docs-search --cwd ~/work/docs-site --worktree \
 comb list                                   # the roster
 comb send docs-search "Also index the API reference."
 claude attach docs-search                   # watch it in the terminal
+comb start maya --fresh                     # after a comb upgrade: a new conversation
 ```
+
+A restarted agent resumes its last conversation. After you upgrade comb,
+start it with `--fresh` so it loads the new tools; its workspace carries it
+over.
 
 ## The page
 
