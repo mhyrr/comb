@@ -3,7 +3,7 @@
  * server-sent events (the tree's state, and one transcript per open view),
  * and keyed updates in the rail so a working cell keeps its motion.
  */
-import type { BotGroup, Pull, PullsReport } from "../../github";
+import type { BotGroup, Pull, PullsReport, Readiness } from "../../github";
 import type { Ticket } from "../../hive";
 import type { QueueItem } from "../../queue";
 import type { FeedEvent } from "../../transcript";
@@ -809,28 +809,99 @@ async function fillPulls() {
   setSection("now-pulls", pullsHtml(pullsData));
 }
 
-const CI_TEXT: Record<Pull["ci"], string> = { passing: "CI passing", failing: "CI failing", pending: "CI running", none: "no CI" };
-const REVIEW_TEXT: Record<string, string> = { APPROVED: "approved", CHANGES_REQUESTED: "changes requested", REVIEW_REQUIRED: "review required" };
+/** A badge's color is merge readiness (Greg, 2026-11-17); both reds read red, both greys grey. */
+const TONE: Record<Readiness, "ok" | "bad" | "wait" | "idle"> = {
+  ready: "ok", failing: "bad", conflicts: "bad", running: "wait", review: "idle", unknown: "idle",
+};
+const LEGEND: [Readiness, string][] = [
+  ["ready", "Ready to merge: CI passed (or the repo has none), no conflicts, no review holding it. Drafts can be green."],
+  ["failing", "CI failing, or the branch has merge conflicts."],
+  ["running", "CI is still running."],
+  ["unknown", "Waiting on a required review, or GitHub is still working out whether it can merge."],
+];
 
-/** CI as a small hex: red failing, ink passing, dashed running, hollow none. */
-function ciMark(ci: Pull["ci"]): string {
-  return `<svg class="pr-ci ci-${ci}" viewBox="0 0 22 24" aria-hidden="true"><path d="${HEX}"/></svg>`;
+function readyMark(r: Readiness): string {
+  return `<svg class="pr-ci tone-${TONE[r]}" viewBox="0 0 22 24" aria-hidden="true"><path d="${HEX}"/></svg>`;
 }
 
-/** One badge per PR, "dobby #28"; the title and state ride in the tooltip. A draft has a dashed edge. */
+const checkList = (names: string[]) => esc([...new Set(names)].join(", "));
+
+/** The status line in words: why the badge has its color. */
+function statusLine(p: Pull): string {
+  const conflicts = p.mergeable === "CONFLICTING" || p.mergeState === "DIRTY";
+  switch (p.readiness) {
+    case "ready": return p.ci === "none" ? "<b>Ready to merge</b> · No CI on this repo" : `<b>Ready to merge</b> · CI passed ${p.ciDone ? agoTag(p.ciDone, true) : ""}`;
+    case "failing": return `<b>CI failing:</b> ${checkList(p.failing)}${conflicts ? " · Merge conflicts" : ""}`;
+    case "conflicts": return `<b>Merge conflicts</b>${p.ci === "none" ? " · No CI on this repo" : p.ci === "passing" ? " · CI passed" : ""}`;
+    case "running": return `<b>CI running:</b> ${checkList(p.running)}`;
+    case "review": return p.review === "CHANGES_REQUESTED" ? "<b>Changes requested</b>" : "<b>Waiting on a required review</b>";
+    case "unknown": return "<b>Checking</b> · GitHub is still working out whether it can merge";
+  }
+}
+
+/** The hover card's content, kept in the badge so the shared tooltip can copy it. */
+function pullTip(p: Pull): string {
+  return `<span class="tip-src" hidden><span class="tip-title">${esc(p.title)}</span>
+    <span class="tip-line tone-${TONE[p.readiness]}">${readyMark(p.readiness)}<span>${statusLine(p)}</span></span>
+    <span class="tip-line">${p.draft ? "Draft" : "Ready for review"} · <code>${esc(p.head)}</code></span>
+    <span class="tip-line tip-faint">Opened ${agoTag(p.created, true)} · updated ${agoTag(p.updated, true)}${p.agent ? "" : ` · by ${esc(p.author)}`}</span></span>`;
+}
+
+/** One badge per PR, "dobby #28", colored by merge readiness; the rest is in the hover card. */
 function pullBadge(p: Pull): string {
-  const state = [p.draft ? "draft" : "", CI_TEXT[p.ci], p.review ? REVIEW_TEXT[p.review] ?? "" : "", p.agent ? "" : `by ${p.author}`, `updated ${agoLong(p.updated)}`].filter(Boolean).join(", ");
-  return `<a class="prb${p.draft ? " draft" : ""} ci-${p.ci}" href="${esc(p.url)}" target="_blank" rel="noreferrer" title="${esc(`${p.title}\n${state}`)}" aria-label="${esc(`${p.project} #${p.number}: ${p.title} (${state})`)}">${ciMark(p.ci)}<span>${esc(p.project)}</span><span class="mono">#${p.number}</span></a>`;
+  const label = `${p.project} #${p.number}: ${p.title}. ${statusLine(p).replace(/<[^>]+>/g, "")}${p.draft ? " Draft." : ""}`;
+  return `<a class="prb tone-${TONE[p.readiness]}" href="${esc(p.url)}" target="_blank" rel="noreferrer" aria-label="${esc(label)}">${readyMark(p.readiness)}<span>${esc(p.project)}</span><span class="mono">#${p.number}</span>${pullTip(p)}</a>`;
 }
 
-/** Bot PRs in one repo, as one badge linking to that repo's open bot PRs. */
+/** Bot PRs in one repo (only with pullsShowBots), as one badge linking to that repo's open bot PRs. */
 function botBadge(g: BotGroup): string {
-  const failing = g.pulls.filter((p) => p.ci === "failing").length;
+  const worst: Readiness = g.pulls.some((p) => TONE[p.readiness] === "bad") ? "failing"
+    : g.pulls.some((p) => p.readiness === "running") ? "running"
+    : g.pulls.every((p) => p.readiness === "ready") ? "ready" : "unknown";
   const n = g.pulls.length;
   const href = `https://github.com/${g.repo}/pulls?q=${encodeURIComponent(`is:pr is:open author:app/${g.pulls[0]!.author}`)}`;
-  const state = `${n} from ${g.pulls[0]!.author}${failing ? `, ${failing} failing CI` : ""}`;
-  return `<a class="prb bots ci-${failing ? "failing" : "none"}" href="${esc(href)}" target="_blank" rel="noreferrer" title="${esc(`${g.pulls.map((p) => `#${p.number} ${p.title}`).join("\n")}\n${state}`)}" aria-label="${esc(`${g.project}: ${n} dependency updates, ${state}`)}">${ciMark(failing ? "failing" : "none")}<span>${esc(g.project)}</span><span class="deps">· ${n} deps</span></a>`;
+  const tip = `<span class="tip-src" hidden><span class="tip-title">${n} dependency ${n === 1 ? "update" : "updates"} from ${esc(g.pulls[0]!.author)}</span>${g.pulls.map((p) =>
+    `<span class="tip-line">${readyMark(p.readiness)}<span>#${p.number} ${esc(p.title)}</span></span>`).join("")}</span>`;
+  return `<a class="prb bots tone-${TONE[worst]}" href="${esc(href)}" target="_blank" rel="noreferrer" aria-label="${esc(`${g.project}: ${n} dependency updates`)}">${readyMark(worst)}<span>${esc(g.project)}</span><span class="deps">· ${n} deps</span>${tip}</a>`;
 }
+
+/** The "?" by the label: what each color means, one line each. */
+function legendButton(): string {
+  return `<button type="button" class="pr-help" aria-label="What the colors mean">?<span class="tip-src" hidden><span class="tip-title">Badge colors</span>${LEGEND.map(([r, text]) =>
+    `<span class="tip-line">${readyMark(r)}<span>${esc(text)}</span></span>`).join("")}</span></button>`;
+}
+
+// One floating card for every badge, placed under it and kept inside the window.
+let tipEl: HTMLElement | null = null;
+function showTip(from: HTMLElement) {
+  const src = from.querySelector<HTMLElement>(":scope > .tip-src");
+  if (!src) return;
+  if (!tipEl) {
+    tipEl = document.createElement("div");
+    tipEl.className = "pr-tip";
+    tipEl.setAttribute("role", "tooltip");
+    document.body.append(tipEl);
+  }
+  tipEl.innerHTML = src.innerHTML;
+  // Measure at the left edge: left where it was, near the right edge, it would shrink to fit.
+  tipEl.style.left = "0px";
+  tipEl.style.top = "0px";
+  tipEl.hidden = false;
+  const at = from.getBoundingClientRect();
+  const w = tipEl.offsetWidth;
+  const h = tipEl.offsetHeight;
+  const left = Math.max(8, Math.min(at.left, innerWidth - w - 8));
+  const below = at.bottom + 6;
+  tipEl.style.left = `${left}px`;
+  tipEl.style.top = `${below + h > innerHeight - 8 ? Math.max(8, at.top - h - 6) : below}px`;
+}
+function hideTip() { if (tipEl) tipEl.hidden = true; }
+const tipHost = (t: EventTarget | null) => (t instanceof Element ? t.closest<HTMLElement>(".prb, .pr-help") : null);
+document.addEventListener("mouseover", (e) => { const h = tipHost(e.target); if (h) showTip(h); });
+document.addEventListener("mouseout", (e) => { const h = tipHost(e.target); if (h && !h.contains(e.relatedTarget as Node | null)) hideTip(); });
+document.addEventListener("focusin", (e) => { const h = tipHost(e.target); if (h) showTip(h); else hideTip(); });
+document.addEventListener("focusout", (e) => { if (tipHost(e.target)) hideTip(); });
+document.addEventListener("scroll", hideTip, true);
 
 function pullsHtml(r: PullsReport): string {
   // The count is the PRs that need a person; dependency updates count on their own badges.
@@ -845,7 +916,7 @@ function pullsHtml(r: PullsReport): string {
   const lead = r.problem ? "" : r.pulls.length + deps ? `From ${repos}${checked}. ` : `No open pull requests in ${repos}${checked}. `;
   const note = `<span class="pr-note">${lead}${notes.map(esc).join(" ")}</span>`;
   if (!r.pulls.length && !deps) return r.at ? `<div class="prs"><h2>Pull requests</h2>${note}</div>` : "";
-  return `<div class="prs"><h2>Pull requests <span>${r.pulls.length}</span></h2>${r.pulls.map(pullBadge).join("")}${r.bots.map(botBadge).join("")}${note}</div>`;
+  return `<div class="prs"><h2>Pull requests <span>${r.pulls.length}</span>${legendButton()}</h2>${r.pulls.map(pullBadge).join("")}${r.bots.map(botBadge).join("")}${note}</div>`;
 }
 
 function queueCard(q: QueueItem): string {
