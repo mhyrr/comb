@@ -299,13 +299,26 @@ describe("the Finished fold (D22)", () => {
     expect([...foldedAgents([a("x", { parent: "y" }), a("y", { parent: "x" })], now)].sort()).toEqual(["x", "y"]);
   });
 
-  test("Greg's sessions fold after one idle day, by last activity or start", () => {
-    expect(sessionFolds({ activity: "waiting", lastActive: hoursAgo(25), startedAt: null }, now)).toBe(true);
-    expect(sessionFolds({ activity: "waiting", lastActive: hoursAgo(23), startedAt: daysAgo(30) }, now)).toBe(false);
-    expect(sessionFolds({ activity: "working", lastActive: daysAgo(8), startedAt: null }, now)).toBe(false);
-    expect(sessionFolds({ activity: "waiting", lastActive: null, startedAt: hoursAgo(25) }, now)).toBe(true);
-    expect(sessionFolds({ activity: "waiting", lastActive: null, startedAt: null }, now)).toBe(false);
-    expect(sessionFolds({ activity: "waiting", lastActive: hoursAgo(25), startedAt: null }, now, 48 * 60 * 60 * 1000)).toBe(false);
+  test("an open session never folds, however long it has been quiet", () => {
+    // A terminal tab Greg keeps open for weeks is a workspace, not finished work.
+    expect(sessionFolds({ activity: "waiting", ended: false, lastActive: daysAgo(18), startedAt: daysAgo(18) }, now)).toBe(false);
+    expect(sessionFolds({ activity: "waiting", ended: false, lastActive: null, startedAt: daysAgo(30) }, now)).toBe(false);
+    expect(sessionFolds({ activity: "working", ended: false, lastActive: daysAgo(8), startedAt: null }, now)).toBe(false);
+  });
+
+  test("an ended session folds after one idle day, by last activity or start", () => {
+    expect(sessionFolds({ activity: "asleep", ended: true, lastActive: hoursAgo(25), startedAt: null }, now)).toBe(true);
+    expect(sessionFolds({ activity: "asleep", ended: true, lastActive: hoursAgo(23), startedAt: daysAgo(30) }, now)).toBe(false);
+    expect(sessionFolds({ activity: "asleep", ended: true, lastActive: null, startedAt: hoursAgo(25) }, now)).toBe(true);
+    expect(sessionFolds({ activity: "asleep", ended: true, lastActive: null, startedAt: null }, now)).toBe(false);
+    expect(sessionFolds({ activity: "asleep", ended: true, lastActive: hoursAgo(25), startedAt: null }, now, 48 * 60 * 60 * 1000)).toBe(false);
+  });
+
+  test("a live terminal session quiet for days stays in Your sessions", async () => {
+    const home = await mkdtemp(join(tmpdir(), "comb-mine-"));
+    const live = [{ sessionId: "s-tab", name: "tab-3a", kind: "interactive", status: "idle", cwd: "/nowhere/tab", startedAt: now - 18 * 86_400_000 }] as any;
+    const snap = await buildSnapshot({ home, claudeHome: join(home, "claude"), live });
+    expect(snap.mine.map((s) => [s.name, s.finished])).toEqual([["tab-3a", false]]);
   });
 });
 
