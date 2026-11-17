@@ -919,6 +919,12 @@ a.shot img { max-width: min(100%, 320px); max-height: 220px; border-radius: 8px;
   .split > nav button { width: auto; white-space: nowrap; gap: 6px; }
   .view-title { font-size: var(--t-2xl); }
 }
+@media (max-width: 480px) {
+  /* Room for the PRs pill on a phone: the hex alone links home, and the tabs pack closer. */
+  .bar { gap: 8px; padding: 0 12px; }
+  .mark span { display: none; }
+  .views a { padding: 6px 9px; }
+}
 
 /* No hive: the Tickets and Memory views say what hive adds (D24). */
 .no-hive { max-width: 62ch; }

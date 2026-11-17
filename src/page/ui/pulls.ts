@@ -70,8 +70,8 @@ function statusLine(p: Pull): string {
 function pullTip(p: Pull): string {
   return `<span class="tip-src" hidden><span class="tip-title">${esc(p.title)}</span>
     <span class="tip-line tone-${TONE[p.readiness]}">${mark(p.readiness)}<span>${statusLine(p)}</span></span>
-    <span class="tip-line">${esc(p.project)} #${p.number} · ${p.draft ? "Draft" : "Ready for review"} · <code>${esc(p.head)}</code></span>
-    <span class="tip-line tip-faint">Opened ${agoTag(p.created)} · updated ${agoTag(p.updated)}${p.agent ? "" : ` · by ${esc(p.author)}`}</span></span>`;
+    <span class="tip-line"><span>${esc(p.project)} #${p.number} · ${p.draft ? "Draft" : "Ready for review"} · <code>${esc(p.head)}</code></span></span>
+    <span class="tip-line tip-faint"><span>Opened ${agoTag(p.created)} · updated ${agoTag(p.updated)}${p.agent ? "" : ` · by ${esc(p.author)}`}</span></span></span>`;
 }
 
 const plain = (html: string) => html.replace(/<[^>]+>/g, "");
@@ -215,7 +215,7 @@ function openList(from: HTMLElement, onlyHidden: boolean): void {
     popEl.setAttribute("role", "dialog");
     popEl.setAttribute("aria-label", "Pull requests");
     popEl.addEventListener("mouseenter", () => { if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; } });
-    popEl.addEventListener("mouseleave", () => closeSoon());
+    popEl.addEventListener("mouseleave", () => { if (!pinned) closeSoon(); });
     document.body.append(popEl);
   }
   popEl.innerHTML = `<div class="pp-head">${onlyHidden ? `${pulls.length + bots.length} more` : "Pull requests"} <span>${data.pulls.length} open</span></div>
@@ -236,6 +236,7 @@ function openList(from: HTMLElement, onlyHidden: boolean): void {
 function closeList(): void {
   if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
   if (popEl) popEl.hidden = true;
+  pinned = false;
   popFor?.setAttribute("aria-expanded", "false");
   popFor = null;
 }
@@ -245,15 +246,26 @@ function closeSoon(): void {
 }
 
 const listHost = (t: EventTarget | null) => (t instanceof Element ? t.closest<HTMLElement>(".bp-more, .bp-pill") : null);
+/** A click pins the list open; hover alone opens it until the pointer leaves. */
+let pinned = false;
 document.addEventListener("click", (e) => {
   const h = listHost(e.target);
-  if (h) { if (popFor === h && !popEl?.hidden) closeList(); else openList(h, h.classList.contains("bp-more")); return; }
+  if (h) {
+    const open = popFor === h && !popEl?.hidden;
+    if (open && pinned) { closeList(); return; }
+    if (!open) openList(h, h.classList.contains("bp-more"));
+    pinned = true; // a click on a list hover already opened keeps it, rather than shutting it
+    return;
+  }
   if (popEl && !popEl.hidden && !popEl.contains(e.target as Node)) closeList();
 });
-document.addEventListener("mouseover", (e) => { const h = listHost(e.target); if (h?.classList.contains("bp-more")) openList(h, true); });
+document.addEventListener("mouseover", (e) => {
+  const h = listHost(e.target);
+  if (h?.classList.contains("bp-more") && (popFor !== h || popEl?.hidden)) { pinned = false; openList(h, true); }
+});
 document.addEventListener("mouseout", (e) => {
   const h = listHost(e.target);
-  if (h && !h.contains(e.relatedTarget as Node | null) && !popEl?.contains(e.relatedTarget as Node | null)) closeSoon();
+  if (!pinned && h && !h.contains(e.relatedTarget as Node | null) && !popEl?.contains(e.relatedTarget as Node | null)) closeSoon();
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && popEl && !popEl.hidden) { closeList(); popFor?.focus(); } });
 
@@ -287,7 +299,9 @@ document.addEventListener("mouseover", (e) => { const h = tipHost(e.target); if 
 document.addEventListener("mouseout", (e) => { const h = tipHost(e.target); if (h && !h.contains(e.relatedTarget as Node | null)) hideTip(); });
 document.addEventListener("focusin", (e) => { const h = tipHost(e.target); if (h) showTip(h); else hideTip(); });
 document.addEventListener("focusout", (e) => { if (tipHost(e.target)) hideTip(); });
-document.addEventListener("scroll", () => { hideTip(); closeList(); }, true);
+// The bar sits above the panes, so only the page itself scrolling (a phone) moves it.
+// A feed or chat scrolling on its own must not shut the card under the pointer.
+document.addEventListener("scroll", (e) => { if (e.target === document) { hideTip(); closeList(); } }, true);
 
 // The bar's width changes with the window, not with the panes: refit on resize.
 let fitFrame = 0;
