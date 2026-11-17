@@ -4,10 +4,43 @@
  * harnesses on this machine compare. Every number comes from /api/usage
  * (src/usage.ts); this file only lays them out.
  */
+import type { Limits, LimitWindow } from "../../limits";
 import type { HarnessRow, Totals, UsageSummary } from "../../usage";
 import { esc } from "./md";
 
-export type UsagePayload = (UsageSummary & { error: string | null }) | { ready: false; error: string | null };
+export type UsagePayload =
+  | (UsageSummary & { limits?: Limits; error: string | null })
+  | { ready: false; limits?: Limits; error: string | null };
+
+/** "7:40pm" today, "Nov 22 at 2:00pm" another day: the way /usage says it. */
+export function resetTime(iso: string, now = Date.now()): string {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/\s?([AP])M$/i, (_, p: string) => `${p.toLowerCase()}m`);
+  const sameDay = new Date(now).toDateString() === d.toDateString();
+  return sameDay ? time : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} at ${time}`;
+}
+
+/** The plan-limit bars, as Claude Code's /usage shows them. */
+export function limitsHtml(l: Limits | undefined, now = Date.now()): string {
+  if (!l) return "";
+  if (l.status !== "ok") return `<div class="u-limits"><p class="quiet u-limits-none">${esc(l.message)}</p></div>`;
+  const bar = (w: LimitWindow) => {
+    const pct = w.usedPercent ?? 0;
+    const level = pct >= 90 ? " high" : pct >= 75 ? " warn" : "";
+    const right = w.reset ? "reset" : `${Math.round(pct)}% used`;
+    const under = w.reset
+      ? `Reset ${w.resetsAt ? resetTime(w.resetsAt, now) : ""}. A new reading comes with the next Claude reply.`
+      : w.resetsAt ? `Resets ${resetTime(w.resetsAt, now)}` : "";
+    return `<div class="u-limit${level}${w.reset ? " is-reset" : ""}">
+      <div class="u-lhead"><b>${esc(w.label)}</b><span>${right}</span></div>
+      <div class="u-meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}" aria-label="${esc(w.label)}"><span style="width:${pct}%"></span></div>
+      <div class="u-lsub">${esc(under)}</div></div>`;
+  };
+  const asOf = `As of ${resetTime(l.asOf, now)}${l.stale ? ". It updates when a Claude session replies" : ""}, from Vibe Island's status line.`;
+  return `<div class="u-limits">${l.windows.map(bar).join("")}
+    <p class="u-lnote">Fable weekly: only in <code>/usage</code></p>
+    <p class="u-lnote${l.stale ? " stale" : ""}">${esc(asOf)}</p></div>`;
+}
 
 /** 1,284 / 12.9K / 4.72B: compact past 10,000. */
 export function compact(v: number): string {
@@ -40,16 +73,17 @@ export function familyOf(id: string): string {
 
 const day = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
-export function usageHtml(u: UsagePayload): string {
+export function usageHtml(u: UsagePayload, now = Date.now()): string {
+  const head = `<h2>Usage</h2>${limitsHtml(u.limits, now)}`;
   if (!("claude" in u)) {
-    return `<h2>Usage</h2><p class="quiet">${u.error ? `Could not read usage: ${esc(u.error)}` : "Reading transcripts…"}</p>`;
+    return `${head}<p class="quiet">${u.error ? `Could not read usage: ${esc(u.error)}` : "Reading transcripts…"}</p>`;
   }
   const c = u.claude;
   const claudeRow = u.harnesses.find((h) => h.id === "claude");
   if (claudeRow?.status === "missing") {
-    return `<h2>Usage</h2><p class="quiet">Claude Code keeps no transcripts on this machine yet.</p>${harnessHtml(u)}`;
+    return `${head}<p class="quiet">Claude Code keeps no transcripts on this machine yet.</p>${harnessHtml(u)}`;
   }
-  return `<h2>Usage <span>Claude Code</span></h2>
+  return `${head}<h3 class="u-tokhead">Claude Code tokens</h3>
     <div class="u-stats">${stat("Today", c.today)}${stat("Last 7 days", c.week)}</div>
     ${typesHtml(c.week)}
     ${columnsHtml(c.days)}

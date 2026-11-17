@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 
 import type { HiveClient } from "../hive";
+import type { Limits } from "../limits";
 import { startPage } from "../page/server";
 import { priceOf, rateFor } from "../pricing";
 import { codexStart, parseClaudeLine, parseCodexLine, parseGeminiChat, UsageIndex, type Roots, type UsageSummary } from "../usage";
@@ -236,11 +237,14 @@ describe("GET /api/usage", () => {
       hive: { close: async () => {} } as unknown as HiveClient, rexBin: null, hiveBin: null,
       hiveSetup: { enabled: false, mode: "off", bin: "hive", home: "/nonexistent-hive", why: "test" },
       usageRoots: roots,
+      limitsPath: join(dir, "rl.json"),
     });
+    await writeFile(join(dir, "rl.json"), JSON.stringify({ five_hour: { used_percentage: 47, resets_at: Math.floor(Date.now() / 1000) + 3600 } }));
     try {
       const res = await fetch(`${page.url}/api/usage`);
-      const body = await res.json() as UsageSummary;
+      const body = await res.json() as UsageSummary & { limits: Limits };
       expect(body.ready).toBe(true);
+      expect(body.limits).toMatchObject({ status: "ok", windows: [{ id: "five_hour", usedPercent: 47, reset: false }] });
       expect(body.harnesses[0]).toMatchObject({ id: "claude", status: "ok", output: 42 });
       expect(existsSync(join(home, "cache", "usage.json"))).toBe(true);
       expect((await fetch(`${page.url}/api/usage`, { headers: { host: "evil.example" } })).status).toBe(403);

@@ -257,8 +257,34 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 .stage-inner.dash { max-width: 1240px; padding-top: 44px; }
 .now-top { margin-bottom: 36px; }
 .now-top .now-sub { margin-bottom: 0; }
-.dash-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 0 56px; align-items: start; }
-@container stage (max-width: 980px) { .dash-grid { grid-template-columns: minmax(0, 1fr); } }
+/* Now's grid. Tickets, usage and reports are grid items placed by area, so one
+   markup serves three layouts:
+   - narrow (stage ≤ 980px): one column, in reading order;
+   - the default: queue | tickets, usage, reports stacked on the right;
+   - wide (stage ≥ 1440px): queue | tickets, reports | usage, with usage at the top of its own column. */
+.dash-grid {
+  display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 0 56px; align-items: start;
+  grid-template-areas: "main tickets" "main usage" "main reports";
+  grid-template-rows: auto auto 1fr;
+}
+.dash-main { grid-area: main; }
+.dash-tickets { grid-area: tickets; }
+.dash-usage { grid-area: usage; }
+.dash-reports { grid-area: reports; }
+.dash-grid > .now-section + .now-section { margin-top: 44px; }
+@container stage (max-width: 980px) {
+  .dash-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "tickets" "usage" "reports"; grid-template-rows: none; }
+  .dash-tickets { margin-top: 44px; }
+}
+@container stage (min-width: 1440px) {
+  .stage-inner.dash { max-width: 1720px; }
+  .dash-grid {
+    grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr) minmax(320px, 1fr); gap: 0 48px;
+    grid-template-areas: "main tickets usage" "main reports usage";
+    grid-template-rows: auto 1fr;
+  }
+  .dash-grid > .dash-usage { margin-top: 0; }
+}
 .now-section:empty { display: none; }
 .now-section + .now-section { margin-top: 44px; }
 .now-section > h2 {
@@ -413,6 +439,25 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
   .usage { --fam-opus: #3987e5; --fam-fable: #d95926; --fam-sonnet: #199e70; }
 }
 .u-legend .u-num, .usage table { font-variant-numeric: tabular-nums; }
+/* Plan limits: meters as /usage shows them. The fill carries severity on a track of the same hue. */
+.u-limits { margin-bottom: 26px; }
+.u-limit + .u-limit { margin-top: 16px; }
+.u-lhead { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--t-sm); }
+.u-lhead b { font-weight: 600; }
+.u-lhead span { color: var(--ink-2); font-weight: 600; }
+.u-meter { height: 10px; margin: 6px 0 5px; background: var(--honey-wash); border-radius: 5px; overflow: hidden; }
+.u-meter span { display: block; height: 100%; background: var(--honey); border-radius: 5px; }
+.u-limit.warn .u-meter span { background: var(--honey-deep); }
+.u-limit.high .u-meter span { background: var(--danger); }
+.u-limit.high .u-lhead span { color: var(--danger); }
+.u-limit.is-reset .u-lhead span { color: var(--faint); font-weight: 500; }
+.u-lsub { font-size: var(--t-xs); color: var(--graphite); }
+.u-lnote { margin: 12px 0 0; font-size: var(--t-xs); color: var(--faint); }
+.u-lnote + .u-lnote { margin-top: 3px; }
+.u-lnote.stale { color: var(--honey-deep); }
+.u-lnote code { font-size: 0.95em; }
+.u-limits-none { font-size: var(--t-sm); }
+.u-tokhead { font-size: var(--t-sm); font-weight: 600; margin: 0 0 12px; padding-top: 18px; border-top: 1px solid var(--hair-2); }
 .u-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .u-label { font-size: var(--t-sm); color: var(--graphite); }
 .u-value { font-size: var(--t-2xl); font-weight: 650; letter-spacing: -0.03em; line-height: 1.05; margin-top: 6px; }

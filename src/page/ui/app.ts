@@ -707,11 +707,9 @@ function renderNow() {
           <section class="now-section" id="now-live"></section>
           <section class="now-section" id="now-notes"></section>
         </div>
-        <aside class="dash-side">
-          <section class="now-section" id="now-tickets"></section>
-          <section class="now-section usage" id="now-usage"></section>
-          <section class="now-section" id="now-reports"></section>
-        </aside>
+        <section class="now-section dash-tickets" id="now-tickets"></section>
+        <aside class="now-section dash-usage usage" id="now-usage" aria-label="Usage"></aside>
+        <section class="now-section dash-reports" id="now-reports"></section>
       </div></div></div>`;
     // Back at the top with nothing in hand: let waiting items in.
     dashScroller()?.addEventListener("scroll", () => { if (qWaiting && !queueBusy()) renderNow(); }, { passive: true });
