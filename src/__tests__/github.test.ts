@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { Run } from "../claude";
-import { ciOf, groupPulls, parseGithubRemote, PullWatch, readPulls, repoForPath, toPull, type Pull } from "../github";
+import { checksOf, ciOf, forPage, groupPulls, readinessOf, parseGithubRemote, PullWatch, readPulls, repoForPath, toPull, type Pull, type PullsReport } from "../github";
 import { hiveProjectPaths } from "../hive";
 
 let dir: string;
@@ -86,6 +86,92 @@ describe("ciOf", () => {
     expect(ciOf([run("COMPLETED", "TIMED_OUT")])).toBe("failing");
     expect(ciOf([{ __typename: "StatusContext", state: "PENDING" }])).toBe("pending");
     expect(ciOf([{ __typename: "StatusContext", state: "ERROR" }])).toBe("failing");
+  });
+});
+
+describe("readinessOf: the badge's color", () => {
+  const CIS = ["passing", "failing", "pending", "none"] as const;
+  const MERGEABLE = ["MERGEABLE", "CONFLICTING", "UNKNOWN"];
+  const STATES = ["CLEAN", "DIRTY", "BLOCKED", "BEHIND", "UNSTABLE", "DRAFT", "HAS_HOOKS", "UNKNOWN", ""];
+  const REVIEWS = [null, "APPROVED", "REVIEW_REQUIRED", "CHANGES_REQUESTED"];
+
+  /** The rules as Greg gave them, written out case by case, apart from the code. */
+  function expected(ci: string, mergeable: string, state: string, review: string | null): string {
+    const conflicts = mergeable === "CONFLICTING" || state === "DIRTY";
+    if (ci === "failing") return "failing";
+    if (conflicts) return "conflicts";
+    if (ci === "pending") return "running";
+    const known = mergeable === "MERGEABLE" && state !== "UNKNOWN" && state !== "";
+    if (!known) return "unknown";
+    const held = review === "REVIEW_REQUIRED" || review === "CHANGES_REQUESTED" || state === "BLOCKED";
+    return held ? "review" : "ready";
+  }
+
+  test("every combination of CI, mergeable, merge state and review", () => {
+    let n = 0;
+    for (const ci of CIS) for (const mergeable of MERGEABLE) for (const mergeState of STATES) for (const review of REVIEWS) {
+      expect([ci, mergeable, mergeState, review, readinessOf({ ci, mergeable, mergeState, review })])
+        .toEqual([ci, mergeable, mergeState, review, expected(ci, mergeable, mergeState, review)]);
+      n++;
+    }
+    expect(n).toBe(4 * 3 * 9 * 4);
+  });
+
+  test("the cases Greg named", () => {
+    const r = (o: Partial<Parameters<typeof readinessOf>[0]>) =>
+      readinessOf({ ci: "passing", mergeable: "MERGEABLE", mergeState: "CLEAN", review: null, ...o });
+    expect(r({})).toBe("ready");
+    expect(r({ ci: "none" })).toBe("ready"); // no CI is not its own color
+    expect(r({ mergeState: "BEHIND" })).toBe("ready"); // behind its base still merges
+    expect(r({ ci: "failing" })).toBe("failing");
+    expect(r({ mergeable: "CONFLICTING", mergeState: "DIRTY" })).toBe("conflicts");
+    expect(r({ ci: "failing", mergeable: "CONFLICTING" })).toBe("failing");
+    expect(r({ ci: "pending" })).toBe("running");
+    expect(r({ mergeable: "UNKNOWN", mergeState: "UNKNOWN" })).toBe("unknown");
+    expect(r({ review: "REVIEW_REQUIRED", mergeState: "BLOCKED" })).toBe("review");
+    expect(r({ review: "APPROVED" })).toBe("ready");
+  });
+
+  test("a draft agent PR with green CI is green: draft never matters", () => {
+    const p = toPull("dobby", "mhyrr/dobby", {
+      ...ghPull(29, { head: "worktree-dobby-tk-042", draft: true, rollup: [{ __typename: "CheckRun", name: "ci", status: "COMPLETED", conclusion: "SUCCESS", completedAt: "2026-11-17T14:53:24Z" }] }),
+      mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", createdAt: "2026-11-17T14:50:55Z",
+    });
+    expect([p.draft, p.readiness, p.ciDone, p.created]).toEqual([true, "ready", "2026-11-17T14:53:24Z", "2026-11-17T14:50:55Z"]);
+  });
+
+  test("a row without merge fields reads as unknown, not ready", () => {
+    expect(toPull("x", "o/x", ghPull(1)).readiness).toBe("unknown");
+  });
+});
+
+describe("checksOf", () => {
+  test("names failing and running checks; the finish time only once all are done", () => {
+    const done = (name: string, conclusion: string, completedAt: string) => ({ __typename: "CheckRun", name, status: "COMPLETED", conclusion, completedAt });
+    expect(checksOf([done("ci", "SUCCESS", "2026-11-17T10:00:00Z"), done("lint", "SUCCESS", "2026-11-17T11:00:00Z")]))
+      .toEqual({ failing: [], running: [], done: "2026-11-17T11:00:00Z" });
+    expect(checksOf([done("ci", "FAILURE", "2026-11-17T10:00:00Z"), done("test", "TIMED_OUT", "2026-11-17T10:05:00Z")]))
+      .toEqual({ failing: ["ci", "test"], running: [], done: "2026-11-17T10:05:00Z" });
+    expect(checksOf([done("ci", "SUCCESS", "2026-11-17T10:00:00Z"), { __typename: "CheckRun", name: "e2e", status: "IN_PROGRESS" }]))
+      .toEqual({ failing: [], running: ["e2e"], done: null });
+    expect(checksOf([{ __typename: "StatusContext", context: "deploy/preview", state: "ERROR" }]))
+      .toEqual({ failing: ["deploy/preview"], running: [], done: null });
+    expect(checksOf(undefined)).toEqual({ failing: [], running: [], done: null });
+  });
+});
+
+describe("forPage", () => {
+  test("bot PRs leave the strip unless pullsShowBots is on; people's and agents' PRs stay", () => {
+    const human = toPull("dobby", "mhyrr/dobby", ghPull(28, { head: "worktree-dobby-tk070" }));
+    const bot = toPull("revrec", "mhyrr/revrec", ghPull(113, { login: "app/dependabot", bot: true }));
+    const report: PullsReport = {
+      at: "2026-11-17T20:00:00Z", ...groupPulls([human, bot]), repos: 2, skipped: [], failed: [], problem: null, refreshing: false,
+    };
+    const off = forPage(report, false);
+    expect(off.bots).toEqual([]);
+    expect(off.pulls.map((p) => p.number)).toEqual([28]);
+    expect(off.repos).toBe(2);
+    expect(forPage(report, true).bots.map((g) => g.pulls.map((p) => p.number))).toEqual([[113]]);
   });
 });
 

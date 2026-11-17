@@ -64,7 +64,8 @@ build: it reloads the page onto the new binary.
   "identityFile": "~/notes/me.md",
   "nightlyAsks": false,
   "defaultModel": "opus",
-  "foldAfterHours": 24
+  "foldAfterHours": 24,
+  "pullsShowBots": false
 }
 ```
 
@@ -86,6 +87,10 @@ build: it reloads the page onto the new binary.
 - **`foldAfterHours`**: how long finished work stays in the page's main
   list. After this many idle hours (24 by default), an agent with a report
   folds into the Finished group, and so does one of your idle sessions.
+- **`pullsShowBots`**: with hive, `true` adds bot PRs (Dependabot and the
+  like) to the strip of open pull requests at the top of Now, as one
+  "repo · N deps" badge per repo. Off by default: the strip shows only PRs
+  from people and agents. The page picks up a change on its next refresh.
 
 `comb init` never writes this file.
 

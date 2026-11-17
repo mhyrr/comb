@@ -27,10 +27,43 @@ export type Pull = {
   head: string;
   url: string;
   updated: string;
+  created: string;
   ci: CiState;
+  /** Names of the checks that failed, for the tooltip. */
+  failing: string[];
+  /** Names of the checks still running. */
+  running: string[];
+  /** When the last check finished; null without checks or while one runs. */
+  ciDone: string | null;
   /** APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or null when none is set. */
   review: string | null;
+  /** gh's mergeable: MERGEABLE, CONFLICTING or UNKNOWN. */
+  mergeable: string;
+  /** gh's mergeStateStatus: CLEAN, DIRTY, BLOCKED, BEHIND, UNSTABLE, DRAFT, UNKNOWN… */
+  mergeState: string;
+  readiness: Readiness;
 };
+
+/**
+ * Whether Greg could merge the PR now, which is what the badge's color says:
+ *   ready      green  CI passed or the repo has none, no conflicts, no review holding it
+ *   failing    red    a check failed
+ *   conflicts  red    the branch conflicts with its base
+ *   running    amber  a check is still running
+ *   review     grey   a required review is missing, or changes were requested
+ *   unknown    grey   GitHub has not worked out mergeability yet
+ * Draft never matters: every agent PR is a draft, and drafts are what Greg reviews.
+ */
+export type Readiness = "ready" | "failing" | "conflicts" | "running" | "review" | "unknown";
+
+export function readinessOf(p: { ci: CiState; mergeable: string; mergeState: string; review: string | null }): Readiness {
+  if (p.ci === "failing") return "failing";
+  if (p.mergeable === "CONFLICTING" || p.mergeState === "DIRTY") return "conflicts";
+  if (p.ci === "pending") return "running";
+  if (p.mergeable !== "MERGEABLE" || p.mergeState === "UNKNOWN" || !p.mergeState) return "unknown";
+  if (p.review === "REVIEW_REQUIRED" || p.review === "CHANGES_REQUESTED" || p.mergeState === "BLOCKED") return "review";
+  return "ready";
+}
 
 export type BotGroup = { project: string; repo: string; pulls: Pull[] };
 
@@ -78,6 +111,9 @@ export async function repoForPath(path: string, run: Run = runProcess): Promise<
   return repo ? { repo } : { why: "origin is not on github.com" };
 }
 
+/** A finished check run with one of these conclusions failed. */
+const FAILED = ["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"];
+
 /** CI from gh's statusCheckRollup: any failure fails; anything unfinished is pending. */
 export function ciOf(rollup: unknown): CiState {
   if (!Array.isArray(rollup) || rollup.length === 0) return "none";
@@ -91,12 +127,33 @@ export function ciOf(rollup: unknown): CiState {
     }
     if (c?.status !== "COMPLETED") { pending = true; continue; }
     const k = String(c.conclusion ?? "");
-    if (["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(k)) return "failing";
+    if (FAILED.includes(k)) return "failing";
   }
   return pending ? "pending" : "passing";
 }
 
-const FIELDS = "number,title,isDraft,author,headRefName,url,updatedAt,statusCheckRollup,reviewDecision";
+/** The failing and running checks by name, and when the last one finished (null while any runs). */
+export function checksOf(rollup: unknown): { failing: string[]; running: string[]; done: string | null } {
+  const failing: string[] = [];
+  const running: string[] = [];
+  let done: string | null = null;
+  for (const c of Array.isArray(rollup) ? (rollup as Record<string, unknown>[]) : []) {
+    const name = String(c?.name ?? c?.context ?? "check");
+    if (c?.__typename === "StatusContext") {
+      const s = String(c.state ?? "");
+      if (s === "FAILURE" || s === "ERROR") failing.push(name);
+      else if (s !== "SUCCESS") running.push(name);
+      continue;
+    }
+    if (c?.status !== "COMPLETED") { running.push(name); continue; }
+    if (FAILED.includes(String(c.conclusion ?? ""))) failing.push(name);
+    const at = typeof c.completedAt === "string" ? c.completedAt : null;
+    if (at && (!done || at > done)) done = at;
+  }
+  return { failing, running, done: running.length ? null : done };
+}
+
+const FIELDS = "number,title,isDraft,author,headRefName,url,createdAt,updatedAt,statusCheckRollup,reviewDecision,mergeable,mergeStateStatus";
 
 type GhPull = {
   number: number;
@@ -105,9 +162,12 @@ type GhPull = {
   author?: { login?: string; is_bot?: boolean } | null;
   headRefName: string;
   url: string;
+  createdAt?: string;
   updatedAt: string;
   statusCheckRollup?: unknown;
   reviewDecision?: string | null;
+  mergeable?: string | null;
+  mergeStateStatus?: string | null;
 };
 
 const isBot = (a: GhPull["author"]) =>
@@ -116,6 +176,11 @@ const isBot = (a: GhPull["author"]) =>
 /** One row of `gh pr list --json` as a Pull. */
 export function toPull(project: string, repo: string, p: GhPull): Pull {
   const login = p.author?.login ?? "";
+  const ci = ciOf(p.statusCheckRollup);
+  const checks = checksOf(p.statusCheckRollup);
+  const review = p.reviewDecision || null;
+  const mergeable = p.mergeable || "UNKNOWN";
+  const mergeState = p.mergeStateStatus || "UNKNOWN";
   return {
     project,
     repo,
@@ -127,9 +192,16 @@ export function toPull(project: string, repo: string, p: GhPull): Pull {
     agent: p.headRefName.startsWith("worktree-"),
     head: p.headRefName,
     url: p.url,
+    created: p.createdAt || p.updatedAt,
     updated: p.updatedAt,
-    ci: ciOf(p.statusCheckRollup),
-    review: p.reviewDecision || null,
+    ci,
+    failing: checks.failing,
+    running: checks.running,
+    ciDone: checks.done,
+    review,
+    mergeable,
+    mergeState,
+    readiness: readinessOf({ ci, mergeable, mergeState, review }),
   };
 }
 
@@ -157,6 +229,14 @@ export function groupPulls(all: Pull[]): { pulls: Pull[]; bots: BotGroup[] } {
   for (const g of bots) g.pulls.sort((a, b) => b.updated.localeCompare(a.updated));
   bots.sort((a, b) => b.pulls.length - a.pulls.length || a.repo.localeCompare(b.repo));
   return { pulls, bots };
+}
+
+/**
+ * What the page gets: bot PRs only when `showBots` (config.json's
+ * pullsShowBots) is on. gh still reads them; the strip leaves them out.
+ */
+export function forPage(r: PullsReport, showBots: boolean): PullsReport {
+  return showBots ? r : { ...r, bots: [] };
 }
 
 /** gh on PATH, else where Homebrew and the installer put it. Null when none. */

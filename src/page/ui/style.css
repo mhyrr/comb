@@ -14,6 +14,7 @@
   --honey-deep: #A86A00;
   --honey-wash: #FFF4D9;
   --danger: #B93A26;
+  --ok: #2E8A57;
   --select: #E9ECF6;
   --shadow: 0 1px 2px rgb(29 32 51 / 0.05), 0 8px 28px -12px rgb(29 32 51 / 0.14);
 
@@ -49,6 +50,7 @@
     --honey-deep: #F4C062;
     --honey-wash: #33290F;
     --danger: #EF7A62;
+    --ok: #5CC28A;
     --select: #252A3B;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -12px rgb(0 0 0 / 0.5);
     color-scheme: dark;
@@ -395,12 +397,19 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 .pt .problem { grid-column: 2 / 4; margin: 6px 0 0; font-size: var(--t-sm); }
 
 /* Pull requests on GitHub: one wrapping strip of badges above the queue (Greg, 2026-11-17).
-   The hex is CI: red failing, ink passing, dashed running, hollow none. A draft has a dashed edge. */
+   The hex is merge readiness: green ready, red CI failing or conflicts, honey CI running
+   (CI at work, so honey's "working" holds), grey waiting or unknown. */
 .now-pulls { margin-bottom: 32px; }
 .now-pulls:empty { display: none; }
 .prs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .prs > h2 { font-size: var(--t-md); font-weight: 650; margin: 0 6px 0 0; display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
-.prs > h2 span { color: var(--faint); font-weight: 500; font-variant-numeric: tabular-nums; }
+.prs > h2 > span { color: var(--faint); font-weight: 500; font-variant-numeric: tabular-nums; }
+.pr-help {
+  width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid var(--hair);
+  background: var(--pane); color: var(--graphite); font-size: var(--t-xs); font-weight: 600; line-height: 16px;
+  align-self: center;
+}
+.pr-help:hover, .pr-help:focus-visible { color: var(--ink); border-color: var(--ink); }
 .prb {
   display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px 0 7px;
   border: 1px solid var(--hair); border-radius: 8px; background: var(--pane);
@@ -408,16 +417,31 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 }
 .prb .mono { font-size: 12px; color: var(--graphite); }
 .prb .deps { color: var(--graphite); }
-.prb.draft { border-style: dashed; border-color: var(--faint); }
-.prb.ci-failing { border-color: color-mix(in srgb, var(--danger) 45%, var(--hair)); }
-.prb:hover { border-color: var(--ink); border-style: solid; }
+.prb.tone-bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--hair)); }
+.prb.tone-ok { border-color: color-mix(in srgb, var(--ok) 40%, var(--hair)); }
+.prb:hover, .prb:focus-visible { border-color: var(--ink); }
 .prb:hover .mono { color: var(--ink); }
 .pr-ci { width: 11px; height: 12px; flex: none; }
 .pr-ci path { stroke-width: 2.6; }
-.pr-ci.ci-passing path { fill: var(--ink); stroke: var(--ink); }
-.pr-ci.ci-failing path { fill: var(--danger); stroke: var(--danger); }
-.pr-ci.ci-pending path { fill: none; stroke: var(--graphite); stroke-dasharray: 3.2 2.4; }
-.pr-ci.ci-none path { fill: none; stroke: var(--faint); }
+.pr-ci.tone-ok path { fill: var(--ok); stroke: var(--ok); }
+.pr-ci.tone-bad path { fill: var(--danger); stroke: var(--danger); }
+.pr-ci.tone-wait path { fill: var(--honey); stroke: var(--honey); }
+.pr-ci.tone-idle path { fill: var(--faint); stroke: var(--faint); }
+
+/* The one hover card the badges share (app.ts places it). */
+.pr-tip {
+  position: fixed; z-index: 50; max-width: min(380px, calc(100vw - 16px));
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 12px;
+  background: var(--pane); color: var(--ink); border: 1px solid var(--hair); border-radius: 10px;
+  box-shadow: var(--shadow); font-size: var(--t-sm); line-height: 1.4; pointer-events: none;
+}
+.pr-tip .tip-title { font-weight: 600; }
+.pr-tip .tip-line { display: flex; align-items: baseline; gap: 6px; color: var(--ink-2); }
+.pr-tip .tip-line .pr-ci { align-self: center; }
+.pr-tip .tip-line b { font-weight: 600; color: var(--ink); }
+.pr-tip .tip-line.tone-bad b { color: var(--danger); }
+.pr-tip .tip-faint { color: var(--graphite); }
+.pr-tip code { font-size: 12px; overflow-wrap: anywhere; }
 .pr-note { color: var(--faint); font-size: var(--t-xs); margin-left: 4px; }
 .pr-note time { color: inherit; }
 
