@@ -11,6 +11,7 @@ import type { Activity, AgentNode, Now, SessionNode, Snapshot } from "../state";
 import { esc, md as markdown } from "./md";
 import { admit, holdingPlace, patchList, setHtml } from "./patch";
 import { treeOrder } from "./tree";
+import { Outbox, statusLine, type Outgoing } from "./outbox";
 import { usageHtml, wireUsage, type UsagePayload } from "./usage";
 import { modelLabel, MODELS, picksModel } from "../../models";
 
@@ -276,7 +277,11 @@ async function send(to: string, message: string): Promise<SendResult> {
   }
 }
 
-function composer(to: string, onSend?: (text: string, done: Promise<SendResult>) => void): HTMLElement {
+/** Greg's messages from every composer, shown in the transcript until their turn arrives. */
+const outbox = new Outbox(send);
+const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+
+function composer(to: string): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "composer";
   wrap.innerHTML = `<div class="shots"></div><form><textarea rows="1" placeholder="Message ${esc(who(to))}" title="Paste or drop a screenshot to attach it" aria-label="Message ${esc(who(to))}"></textarea><button type="submit" disabled>Send</button></form><p class="hint"></p>`;
@@ -284,8 +289,10 @@ function composer(to: string, onSend?: (text: string, done: Promise<SendResult>)
   const shots: { path: string; url: string }[] = [];
   const drawShots = () => {
     shotsEl.innerHTML = shots.map((s, i) => `<span class="shot-chip"><img src="${esc(s.url)}" alt=""><button type="button" data-drop="${i}" aria-label="Remove screenshot">×</button></span>`).join("");
-    btn.disabled = !ta.value.trim() && !shots.length;
+    btn.disabled = sending || (!ta.value.trim() && !shots.length);
   };
+  let sending = false;
+  const composed = () => [ta.value.trim(), ...shots.map((s) => `[Screenshot: ${s.path}]`)].filter(Boolean).join("\n\n");
   shotsEl.addEventListener("click", (e) => {
     const i = (e.target as HTMLElement).closest<HTMLElement>("[data-drop]")?.dataset.drop;
     if (i !== undefined) { shots.splice(Number(i), 1); drawShots(); }
@@ -314,7 +321,7 @@ function composer(to: string, onSend?: (text: string, done: Promise<SendResult>)
   const size = () => {
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
-    btn.disabled = !ta.value.trim() && !shots.length;
+    btn.disabled = sending || (!ta.value.trim() && !shots.length);
   };
   ta.addEventListener("paste", (e) => {
     const files = [...(e.clipboardData?.files ?? [])];
@@ -330,27 +337,49 @@ function composer(to: string, onSend?: (text: string, done: Promise<SendResult>)
       form.requestSubmit();
     }
   });
+  // The box keeps its text until the server takes the message, so a failed
+  // send loses nothing. The message itself shows in the transcript at once
+  // (outbox). Once a message sent from this box is accepted, by Enter or by
+  // Retry, the box clears if it still holds that message.
+  const fromBox = new Set<string>();
+  const off = outbox.subscribe(() => {
+    if (!wrap.isConnected) { off(); return; }
+    const mine = outbox.for(to);
+    const ids = new Set(mine.map((o) => o.id));
+    for (const id of fromBox) if (!ids.has(id)) fromBox.delete(id);
+    for (const o of mine) {
+      if (!fromBox.has(o.id) || o.state !== "sent") continue;
+      fromBox.delete(o.id);
+      if (norm(composed()) === norm(o.text)) {
+        ta.value = "";
+        shots.length = 0;
+        drawShots();
+        size();
+      }
+    }
+    if (mine.some((o) => fromBox.has(o.id) && o.state === "failed")) {
+      hint.className = "hint err";
+      hint.textContent = "Not sent. Your message is still here: press Enter, or Retry above, to send it again.";
+    } else if (hint.classList.contains("err") && hint.textContent?.startsWith("Not sent")) {
+      hint.className = "hint";
+      hint.textContent = "";
+    }
+  });
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const typed = ta.value.trim();
-    if (!typed && !shots.length) return;
-    const text = [typed, ...shots.map((s) => `[Screenshot: ${s.path}]`)].filter(Boolean).join("\n\n");
-    ta.value = "";
-    shots.length = 0;
-    drawShots();
-    size();
+    const text = composed();
+    if (sending || !text) return;
     hint.className = "hint";
-    hint.textContent = `Sending to ${who(to)}…`;
-    const done = send(to, text);
-    onSend?.(text, done);
-    const r = await done;
-    if (r.ok) {
-      hint.textContent = r.woke ? `${who(to)} was asleep and is waking up with your message.` : `Delivered to ${who(to)}.`;
-      setTimeout(() => { if (hint.textContent?.startsWith("Delivered") || hint.textContent?.includes("waking")) hint.textContent = ""; }, 6000);
-    } else {
-      hint.className = "hint err";
-      hint.textContent = r.error;
-      if (!ta.value) { ta.value = typed; size(); }
+    hint.textContent = "";
+    sending = true;
+    size();
+    const { item, done } = outbox.send(to, text);
+    fromBox.add(item.id);
+    try {
+      await done;
+    } finally {
+      sending = false;
+      size();
     }
   });
   return wrap;
@@ -488,18 +517,23 @@ maya.innerHTML = `
   <div class="maya-head">${cell("asleep", 26)}<div><h2>Maya</h2><p id="maya-state">Chief of staff</p></div>
     <a class="open" href="#/agent/maya">Open</a></div>
   <div class="chat" id="chat"><p class="empty">Reading Maya's conversation…</p></div>`;
-type Pending = { text: string; at: number; status: string; failed?: boolean };
-const pending: Pending[] = [];
-maya.appendChild(composer("maya", (text, done) => {
-  const p: Pending = { text, at: Date.now(), status: "Sending" };
-  pending.push(p);
-  renderChat();
-  done.then((r) => {
-    p.status = r.ok ? (r.woke ? "Waking Maya" : "Delivered") : r.error;
-    p.failed = !r.ok;
-    renderChat();
-  });
-}));
+maya.appendChild(composer("maya"));
+outbox.subscribe(() => { renderChat(); renderTimeline(); });
+
+/** A failed message's Retry, in the Maya pane or the timeline. */
+function retryClick(e: Event): boolean {
+  const id = (e.target as HTMLElement).closest<HTMLElement>("[data-retry]")?.dataset.retry;
+  if (!id) return false;
+  void outbox.retry(id);
+  return true;
+}
+
+/** The line under one of Greg's unsettled messages. Failure reads in red with a Retry. */
+function outStatus(o: Outgoing, to: string): string {
+  const line = esc(statusLine(o, who(to)));
+  if (o.state === "failed") return `<div class="out-status failed" role="alert">${line} <button type="button" data-retry="${esc(o.id)}">Retry</button></div>`;
+  return `<div class="out-status ${o.state}"${o.state === "sending" ? ' aria-live="polite"' : ""}>${line}</div>`;
+}
 const chatOpen = new Set<string>();
 
 function renderMayaHead() {
@@ -549,13 +583,10 @@ function renderChat() {
         html.push(`<div class="msg worked"><button type="button" data-group="${esc(b.id)}">${label}</button>${open ? `<ul class="tools">${b.tools.map(toolItem).join("")}</ul>` : ""}</div>`);
       }
     });
-    // Drop a pending message once the transcript shows it arrived.
-    const arrived = mayaFeed.events.filter((e) => e.k === "in" && e.from === "greg").map((e) => (e as { text: string }).text.trim());
-    for (let i = pending.length - 1; i >= 0; i--) {
-      if (arrived.includes(pending[i]!.text.trim())) pending.splice(i, 1);
-    }
-    for (const p of pending) {
-      html.push(`<div class="msg greg pending"><div><div class="bubble prose">${md(p.text)}</div><div class="status${p.failed ? " problem" : ""}">${esc(p.status)}</div></div></div>`);
+    // Greg's messages the transcript has not caught up with yet.
+    outbox.settle("maya", mayaFeed.events);
+    for (const o of outbox.for("maya")) {
+      html.push(`<div class="msg greg out-${o.state}" data-out="${esc(o.id)}"><div><div class="bubble prose">${md(o.text)}</div>${outStatus(o, "maya")}</div></div>`);
     }
     if (mayaFeed.problem) html.push(`<p class="problem">${esc(mayaFeed.problem)}</p>`);
     if (!html.length) html.push(`<p class="empty">Nothing yet. Tell Maya what you want taken off your plate.</p>`);
@@ -563,6 +594,7 @@ function renderChat() {
   });
 }
 $("chat").addEventListener("click", (e) => {
+  if (retryClick(e)) return;
   const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-group]");
   if (!btn) return;
   const id = btn.dataset.group!;
@@ -1223,6 +1255,10 @@ function renderEntityHead() {
   meta.innerHTML = parts.join("");
 }
 
+/** Who the stage's composer writes to: the same name renderEntity gives composer(). */
+const stageTo = (): string | null =>
+  route.view === "agent" ? route.name : route.view === "session" ? entity()?.name ?? null : null;
+
 /** The open tab. Async renders check it before they write into #ent-body. */
 const openTab = (): Tab | null =>
   route.view === "agent" ? route.tab : route.view === "session" ? "activity" : null;
@@ -1232,6 +1268,7 @@ function renderTimeline() {
   // The feed outlives a tab switch, so a late event must not overwrite Charter, Log or Reports.
   if (!body || !stageFeed || openTab() !== "activity") return;
   const feed = stageFeed;
+  if (!feed.ready && !feed.problem) return; // still "Reading the transcript…"
   stickToBottom(body, () => {
     const html: string[] = [];
     let lastClock = "";
@@ -1249,7 +1286,7 @@ function renderTimeline() {
         if (b.from === "comb") {
           html.push(`<div class="ev ev-idle"><span class="t">${esc(t)}</span><div class="b">${esc(combNote(b.text))}</div></div>`);
         } else {
-          html.push(`<div class="ev ev-in${b.from === "greg" ? "" : " from-other"}"><span class="t">${esc(t)}</span><div class="b"><div class="from">${esc(who(b.from))}</div><div class="prose">${md(b.text)}</div></div></div>`);
+          html.push(`<div class="ev ev-in${b.from === "greg" ? " you" : " from-other"}"><span class="t">${esc(t)}</span><div class="b"><div class="from">${esc(who(b.from))}</div><div class="prose">${md(b.text)}</div></div></div>`);
         }
       } else if (b.k === "say") {
         html.push(`<div class="ev ev-say"><span class="t">${esc(t)}</span><div class="b prose">${md(b.text)}</div></div>`);
@@ -1266,11 +1303,20 @@ function renderTimeline() {
         }${shown.map(toolItem).join("")}</ul></div></div>`);
       }
     }
+    // Greg's messages the transcript has not caught up with yet.
+    const to = stageTo();
+    if (to && feed.ready) {
+      outbox.settle(to, feed.events);
+      for (const o of outbox.for(to)) {
+        html.push(`<div class="ev ev-in you out-${o.state}" data-out="${esc(o.id)}"><span class="t">${esc(clock(new Date(o.at).toISOString()))}</span><div class="b"><div class="from">${esc(userName())}</div><div class="prose">${md(o.text)}</div>${outStatus(o, to)}</div></div>`);
+      }
+    }
     if (feed.problem) html.push(`<p class="problem">${esc(feed.problem)}</p>`);
     body.innerHTML = `<div class="timeline">${html.join("") || `<p class="empty">No activity yet.</p>`}</div>`;
   });
 }
 stage.addEventListener("click", (e) => {
+  if (retryClick(e)) return;
   const copy = (e.target as HTMLElement).closest<HTMLElement>("[data-copy]");
   if (copy) {
     void navigator.clipboard.writeText(copy.dataset.copy!).then(() => {
