@@ -397,16 +397,25 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 .start-sent { font-size: var(--t-sm); color: var(--graphite); padding-top: 5px; white-space: nowrap; }
 .pt .problem { grid-column: 2 / 4; margin: 6px 0 0; font-size: var(--t-sm); }
 
-/* Pull requests on GitHub: one wrapping strip of badges above the queue (Greg, 2026-11-17).
+/* Pull requests on GitHub, in the top bar on every view (Greg, 2026-11-17; pulls.ts).
    The hex is merge readiness: green ready, red CI failing or conflicts, honey CI running
    (CI at work, so honey's "working" holds), grey waiting or unknown. */
-.now-pulls { margin-bottom: 32px; }
-.now-pulls:empty { display: none; }
-.prs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.prs > h2 { font-size: var(--t-md); font-weight: 650; margin: 0 6px 0 0; display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
-.prs > h2 > span { color: var(--faint); font-weight: 500; font-variant-numeric: tabular-nums; }
+.bar-prs { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; height: 100%; }
+.bar-prs:empty { display: none; }
+.bp-label { font-size: var(--t-sm); color: var(--graphite); white-space: nowrap; }
+.bp-label b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.bp-badges { display: flex; gap: 6px; min-width: 0; flex: none; }
+.bp-note { font-size: var(--t-sm); color: var(--faint); white-space: nowrap; border-bottom: 1px dotted var(--faint); cursor: default; }
+.bp-more, .bp-pill {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px 0 8px; flex: none;
+  border: 1px solid var(--hair); border-radius: 8px; background: var(--pane);
+  font-size: var(--t-sm); color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.bp-more:hover, .bp-pill:hover, .bp-more[aria-expanded="true"], .bp-pill[aria-expanded="true"] { border-color: var(--ink); color: var(--ink); }
+.bp-pill b { color: var(--ink); font-weight: 600; }
+.bp-pill { display: none; }
 .pr-help {
-  width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid var(--hair);
+  width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid var(--hair); flex: none;
   background: var(--pane); color: var(--graphite); font-size: var(--t-xs); font-weight: 600; line-height: 16px;
   align-self: center;
 }
@@ -429,7 +438,31 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 .pr-ci.tone-wait path { fill: var(--honey); stroke: var(--honey); }
 .pr-ci.tone-idle path { fill: var(--faint); stroke: var(--faint); }
 
-/* The one hover card the badges share (app.ts places it). */
+/* The list "+N" and the phone's pill open: links you can click, so it takes the pointer. */
+.pr-pop {
+  position: fixed; z-index: 60; width: min(420px, calc(100vw - 16px)); overflow-y: auto;
+  background: var(--pane); color: var(--ink); border: 1px solid var(--hair); border-radius: 12px;
+  box-shadow: var(--shadow); font-size: var(--t-sm); line-height: 1.4;
+}
+.pp-head { padding: 10px 14px 6px; font-weight: 650; display: flex; gap: 8px; align-items: baseline; }
+.pp-head span { color: var(--faint); font-weight: 500; }
+.pp-list { display: flex; flex-direction: column; padding: 0 6px; }
+.pp-row { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 8px; padding: 7px 8px; border-radius: 8px; text-decoration: none; }
+.pp-row .pr-ci { margin-top: 4px; }
+.pp-row:hover, .pp-row:focus-visible { background: var(--select); }
+.pp-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pp-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.pp-title b { color: var(--ink); font-weight: 600; }
+.pp-status { color: var(--graphite); font-size: var(--t-xs); }
+.pp-status b { font-weight: 600; color: var(--ink-2); }
+.pp-foot { padding: 8px 14px 12px; border-top: 1px solid var(--hair-2); margin-top: 6px; color: var(--faint); font-size: var(--t-xs); }
+.pp-foot:empty { display: none; }
+.pp-foot p { margin: 4px 0 0; }
+.pp-legend { display: flex; flex-direction: column; gap: 3px; color: var(--graphite); }
+.pp-legend .tip-line { display: flex; align-items: baseline; gap: 6px; }
+.pp-legend .pr-ci { align-self: center; }
+
+/* The one hover card the badges share (pulls.ts places it). */
 .pr-tip {
   position: fixed; z-index: 50; max-width: min(380px, calc(100vw - 16px));
   display: flex; flex-direction: column; gap: 4px; padding: 10px 12px;
@@ -443,8 +476,6 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 .pr-tip .tip-line.tone-bad b { color: var(--danger); }
 .pr-tip .tip-faint { color: var(--graphite); }
 .pr-tip code { font-size: 12px; overflow-wrap: anywhere; }
-.pr-note { color: var(--faint); font-size: var(--t-xs); margin-left: 4px; }
-.pr-note time { color: inherit; }
 
 
 .report-card { display: flex; flex-direction: column; gap: 4px; text-decoration: none; padding: 14px 0; border-top: 1px solid var(--hair-2); }
@@ -854,6 +885,11 @@ a.shot img { max-width: min(100%, 320px); max-height: 220px; border-radius: 8px;
   .bar { gap: 12px; padding: 0 16px; }
   .mark { width: auto; }
   .pulse { display: none; }
+  /* Phone: one pill opens the whole list; no hover there to read a badge (pulls.ts). */
+  .bar-prs { flex: 0 0 auto; margin-left: auto; overflow: visible; }
+  .bar-prs .bp-label, .bar-prs .pr-help, .bar-prs .bp-badges, .bar-prs .bp-more { display: none; }
+  .bar-prs .bp-pill { display: inline-flex; }
+  .bar-prs + .find { margin-left: 0; }
   .split { grid-template-columns: 1fr; }
   .tallies { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tallies b { font-size: 30px; }
