@@ -314,6 +314,25 @@ dashboard as too busy, too long, and read-only.
   reply routing exists.
 - Tickets and memory: the page server is an MCP client of the `hive` server,
   launched with the command in Greg's user-scope Claude config. Read-only.
+- Usage (the Now tab's side column, `src/usage.ts`, added 2026-11-17): token
+  counts from every harness that keeps them locally. Claude Code's
+  `~/.claude/projects/**/*.jsonl` assistant `message.usage`, deduped by
+  message id, because each content block repeats the usage line and resumed
+  sessions copy earlier messages into a new file (on 2026-11-17, summing
+  every line counted today's output 2.8 times over). Codex's
+  `~/.codex/sessions` `token_count` events, whose totals are cumulative, so
+  each record is the step since the last one. Gemini CLI's
+  `~/.gemini/tmp/*/chats/*.json` per-message tokens. Cursor keeps no token
+  counts locally, and the panel says so. ChatGPT on the web keeps no local
+  record and is not shown; nothing calls an account API. Transcripts are
+  append-only, so each file is read on from where the last read stopped, and
+  the per-file results persist in `~/.comb/cache/usage.json` keyed by path,
+  mtime and size: the first read of 4.3 GB took 8 seconds, a restart 80 ms.
+  The server reads off the request path, at most once a minute, and only
+  once someone opens the page. Dollars come from one table,
+  `src/pricing.ts`, with its source date, and are labeled API-equivalent.
+  Models without a price we trust (Haiku 5.5, fast mode, every non-Claude
+  model) are left out of the dollars, and the panel says how much was left out.
 
 **Finished.** Finished agents fold out of the tree into a collapsed
 **Finished** group under it (D22). A task agent folds when it has at least
