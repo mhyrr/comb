@@ -133,8 +133,12 @@ One screen, live, with no page scroll. Light first; dark follows the OS.
   sessions list below the tree.
 - **Center:** Now (what waits on you, what is working, what finished), or
   the selected agent: its Activity, Charter, Log and Reports.
-- **Now's side column:** priority tickets, finished work, and a usage panel:
-  Claude Code's tokens today and this week, 30 days of output per day, the
+- **Now's side column:** priority tickets, finished work, and a usage panel.
+  On a wide screen (the center at least 1440px) usage moves to a third column
+  of its own. It opens with your plan limits, the session and weekly bars from
+  Claude Code's `/usage`, read from the copy Vibe Island's status line keeps
+  (`~/.vibe-island/cache/rl.json`) and shown "as of" when that copy was
+  written. Below the bars come Claude Code's tokens today and this week, 30 days of output per day, the
   split by model, and how Codex, Gemini CLI and Cursor compare. It reads the
   harnesses' local files only (`~/.claude/projects`, `~/.codex/sessions`,
   `~/.gemini/tmp`), shows counts and never text, and says so when a harness

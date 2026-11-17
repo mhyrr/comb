@@ -14,7 +14,7 @@
  *   POST /api/upload            an image body; saved to ~/.comb/inbox/, path returned
  *   POST /api/agent/:name/terminal  a terminal tab in the agent's directory running `hive attach <name>`
  *   GET  /api/inbox/:file       a saved image
- *   GET  /api/usage             token counts per AI harness on this machine (src/usage.ts)
+ *   GET  /api/usage             plan limits (src/limits.ts) and token counts per AI harness on this machine (src/usage.ts)
  *   GET  /api/pulls             open GitHub PRs in hive's projects (gh, read-only, cached)
  *
  * Loopback only, and every request must name this server as its Host (and
@@ -34,6 +34,7 @@ import { formatNightly, runNightly } from "../nightly";
 import { isModel, MODELS } from "../models";
 import { answerMessage, answerModel, readItem, recordAnswer } from "../queue";
 import { transcriptPath } from "../transcript";
+import { readLimits } from "../limits";
 import { UsageIndex, type Roots } from "../usage";
 import { agentWorkdir, findHiveBin, findRexBin, openInTerminal } from "../terminal";
 import { Tail } from "./feed";
@@ -58,6 +59,8 @@ export type PageOpts = {
   nightlyMs?: number;
   /** Where the usage panel reads each harness's files. The real home's when omitted. */
   usageRoots?: Roots;
+  /** The plan-limits file (src/limits.ts). Vibe Island's rl.json under the real home when omitted. */
+  limitsPath?: string;
   /** The gh CLI; null means gh is not installed. Found when omitted. */
   ghBin?: string | null;
   /** How old the open-PR cache may get before a read refreshes it. */
@@ -422,7 +425,9 @@ export function startPage(opts: PageOpts = {}) {
         if (!usageRun && Date.now() - usageAt > USAGE_TTL_MS) void refreshUsage();
         // Nothing read yet: give the first read a moment before saying so.
         if (!usage.ready && usageRun) await Promise.race([usageRun, Bun.sleep(1500)]);
-        return json(usage.ready ? { ...usage.summary(), error: usageError } : { ready: false, error: usageError });
+        // Plan limits are one small file, read fresh each time, and shown even while tokens are still being read.
+        const limits = await readLimits(opts.limitsPath);
+        return json(usage.ready ? { ...usage.summary(), limits, error: usageError } : { ready: false, limits, error: usageError });
       }),
       // Bot PRs reach the page only with pullsShowBots on; read per request, so a config edit needs no restart.
       "/api/pulls": (req) => api(req, async () => json(forPage(await pulls.get(), readCombConfig(home).pullsShowBots))),

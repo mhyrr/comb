@@ -382,6 +382,11 @@ put(join(HOME, "hive-fixture.json"), JSON.stringify({
   }));
   utimesSync(gemini, geminiDay, geminiDay);
   put(join(HOME, ".cursor", "argv.json"), "{}\n");
+  // Plan limits, as Vibe Island's status line writes Claude Code's rate_limits (src/limits.ts).
+  put(join(HOME, ".vibe-island", "cache", "rl.json"), JSON.stringify({
+    five_hour: { used_percentage: 38, resets_at: Math.floor(now / 1000) + 3 * 3600 + 20 * 60 },
+    seven_day: { used_percentage: 61, resets_at: Math.floor(now / 1000) + 4 * 86400 + 2 * 3600 },
+  }) + "\n");
 }
 
 console.log(`fixture built at ${out}\n  HOME=${HOME}`);
