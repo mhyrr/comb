@@ -128,6 +128,13 @@ One screen, live, with no page scroll. Light first; dark follows the OS.
   sessions list below the tree.
 - **Center:** Now (what waits on you, what is working, what finished), or
   the selected agent: its Activity, Charter, Log and Reports.
+- **Now's side column:** priority tickets, finished work, and a usage panel:
+  Claude Code's tokens today and this week, 30 days of output per day, the
+  split by model, and how Codex, Gemini CLI and Cursor compare. It reads the
+  harnesses' local files only (`~/.claude/projects`, `~/.codex/sessions`,
+  `~/.gemini/tmp`), shows counts and never text, and says so when a harness
+  keeps no local data. Dollars are labeled API-equivalent: what the tokens
+  would cost at Anthropic's list prices, not what a subscription pays.
 - **Right:** Maya, always open, with a box to message her.
 
 ⌘K jumps to any agent, session or project.

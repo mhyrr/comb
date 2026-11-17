@@ -14,6 +14,7 @@
  *   POST /api/upload            an image body; saved to ~/.comb/inbox/, path returned
  *   POST /api/agent/:name/terminal  a terminal tab in the agent's directory running `hive attach <name>`
  *   GET  /api/inbox/:file       a saved image
+ *   GET  /api/usage             token counts per AI harness on this machine (src/usage.ts)
  *
  * Loopback only, and every request must name this server as its Host (and
  * Origin, for a POST), so no other site can drive the agents.
@@ -31,6 +32,7 @@ import { formatNightly, runNightly } from "../nightly";
 import { isModel, MODELS } from "../models";
 import { answerMessage, answerModel, readItem, recordAnswer } from "../queue";
 import { transcriptPath } from "../transcript";
+import { UsageIndex, type Roots } from "../usage";
 import { agentWorkdir, findHiveBin, findRexBin, openInTerminal } from "../terminal";
 import { Tail } from "./feed";
 import { buildSnapshot, type Snapshot } from "./state";
@@ -52,6 +54,8 @@ export type PageOpts = {
   hiveBin?: string | null;
   /** File hive's nightly picks (and asks, if on) into the queue on start and at this interval. Off when unset, and without hive. */
   nightlyMs?: number;
+  /** Where the usage panel reads each harness's files. The real home's when omitted. */
+  usageRoots?: Roots;
 };
 
 const FEED_MS = 600;
@@ -60,6 +64,7 @@ const IMAGE_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": 
 /** Names the upload route makes, and nothing else: no paths, no dot files. */
 const INBOX_NAME = /^[0-9TZ-]+-[0-9a-f]{8}\.(png|jpg|gif|webp)$/;
 const TICKET_TTL_MS = 30_000;
+const USAGE_TTL_MS = 60_000;
 
 export function startPage(opts: PageOpts = {}) {
   const port = opts.port ?? Number(process.env.COMB_PAGE_PORT || 4747);
@@ -223,6 +228,22 @@ export function startPage(opts: PageOpts = {}) {
     return ticketCache;
   }
 
+  // --- usage (the Now tab's usage panel) --------------------------------------
+  // Read off the request path: a request gets the last summary at once and
+  // starts a fresh read if that one is over a minute old. The first read waits
+  // for the first request, so a page nobody opens never walks the transcripts.
+  const usage = new UsageIndex({ roots: opts.usageRoots, cachePath: join(home, "cache", "usage.json") });
+  let usageRun: Promise<void> | null = null;
+  let usageAt = 0;
+  let usageError: string | null = null;
+  function refreshUsage(): Promise<void> {
+    usageRun ??= usage.refresh()
+      .then(() => { usageError = null; })
+      .catch((err) => { usageError = err instanceof Error ? err.message : String(err); console.error("comb page: usage read failed:", err); })
+      .finally(() => { usageAt = Date.now(); usageRun = null; });
+    return usageRun;
+  }
+
   // --- requests ---------------------------------------------------------------
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 
@@ -375,6 +396,12 @@ export function startPage(opts: PageOpts = {}) {
         if (!hiveOn) return noHive();
         if (!listHiveProjects(setup.home).includes(project) || !id) return json({ error: "No such ticket." }, 404);
         return json({ text: await hive.showTicket(project, id) });
+      }),
+      "/api/usage": (req) => api(req, async () => {
+        if (!usageRun && Date.now() - usageAt > USAGE_TTL_MS) void refreshUsage();
+        // Nothing read yet: give the first read a moment before saying so.
+        if (!usage.ready && usageRun) await Promise.race([usageRun, Bun.sleep(1500)]);
+        return json(usage.ready ? { ...usage.summary(), error: usageError } : { ready: false, error: usageError });
       }),
       "/api/projects": (req) => api(req, () => json({ projects: hiveOn ? listHiveProjects(setup.home) : [] })),
       "/api/memory": (req) => api(req, async (url) => {

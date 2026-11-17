@@ -10,6 +10,7 @@ import type { Activity, AgentNode, Now, SessionNode, Snapshot } from "../state";
 import { esc, md as markdown } from "./md";
 import { admit, holdingPlace, patchList, setHtml } from "./patch";
 import { treeOrder } from "./tree";
+import { usageHtml, wireUsage, type UsagePayload } from "./usage";
 import { modelLabel, MODELS, picksModel } from "../../models";
 
 /** Markdown, with "[Screenshot: …/inbox/<file>]" shown as the image itself. */
@@ -706,6 +707,7 @@ function renderNow() {
         </div>
         <aside class="dash-side">
           <section class="now-section" id="now-tickets"></section>
+          <section class="now-section usage" id="now-usage"></section>
           <section class="now-section" id="now-reports"></section>
         </aside>
       </div></div></div>`;
@@ -755,7 +757,31 @@ function renderNow() {
       "#now-top, #q-head, #q-cards > .qcard, #q-rest li, #now-live > *, #now-notes > *")), draw);
   }
   void fillTickets();
+  void fillUsage();
   void fillReports();
+}
+
+let usageCache: { at: number; data: UsagePayload } | null = null;
+let usageBusy = false;
+/** The usage panel. The server reads off the request path; this asks at most every 30 seconds, sooner while it is still reading. */
+async function fillUsage() {
+  const stale = !usageCache || Date.now() - usageCache.at > (usageCache.data.ready ? 30_000 : 3_000);
+  if (stale) {
+    if (usageBusy) return;
+    usageBusy = true;
+    try {
+      usageCache = { at: Date.now(), data: await getJSON<UsagePayload>("/api/usage") };
+    } catch (err) {
+      usageCache = { at: Date.now(), data: { ready: false, error: (err as Error).message } };
+    } finally {
+      usageBusy = false;
+    }
+    if (!usageCache.data.ready) setTimeout(() => { if (route.view === "now") void fillUsage(); }, 3_100);
+  }
+  if (route.view !== "now" || !usageCache) return;
+  setSection("now-usage", usageHtml(usageCache!.data));
+  const el = document.getElementById("now-usage");
+  if (el) wireUsage(el);
 }
 
 function queueCard(q: QueueItem): string {

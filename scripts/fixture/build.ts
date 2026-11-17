@@ -332,4 +332,56 @@ put(join(HOME, "hive-fixture.json"), JSON.stringify({
   },
 }, null, 2) + "\n");
 
+// --- usage (the Now tab's usage panel) ------------------------------------------
+// Invented token counts: 30 days of Claude Code calls, a Codex session, an
+// unused Gemini CLI and an installed Cursor. A fixed seed keeps the bars the
+// same on every build.
+{
+  let seed = 7;
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const models = ["claude-opus-5-5", "claude-opus-5-5", "claude-opus-5-5", "claude-fable-5-2", "claude-sonnet-5-5", "claude-haiku-5-5"];
+  const lines: string[] = [];
+  let id = 0;
+  for (let d = 29; d >= 0; d--) {
+    const weekend = new Date(now - d * 86400_000).getDay() % 6 === 0;
+    const calls = Math.round((weekend ? 20 : 70) * (0.5 + rand()));
+    for (let c = 0; c < calls; c++) {
+      const min = d * 1440 + Math.floor(rand() * (d === 0 ? 600 : 1400));
+      const session = `fixture-usage-${d}-${c % 6}`;
+      lines.push(JSON.stringify({
+        type: "assistant", sessionId: session, timestamp: ago(min), cwd: REPOS,
+        message: {
+          id: `msg_fixture_${++id}`, role: "assistant", model: models[Math.floor(rand() * models.length)], content: [{ type: "text", text: "Done." }],
+          usage: {
+            input_tokens: Math.round(rand() * 40), cache_creation_input_tokens: Math.round(rand() * 9000),
+            cache_read_input_tokens: Math.round(60_000 + rand() * 120_000), output_tokens: Math.round(200 + rand() * 1800),
+            output_tokens_details: { thinking_tokens: Math.round(rand() * 400) }, cache_creation: { ephemeral_1h_input_tokens: 0 },
+          },
+        },
+      }));
+    }
+  }
+  put(join(HOME, ".claude", "projects", "-fixture-usage", "usage.jsonl"), lines.join("\n") + "\n");
+
+  const codex = (min: number, input: number, cached: number, output: number) => JSON.stringify({
+    timestamp: ago(min), type: "event_msg",
+    payload: { type: "token_count", info: { total_token_usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output, reasoning_output_tokens: 0, total_tokens: input + output } } },
+  });
+  put(join(HOME, ".codex", "sessions", day(60 * 24 * 3).replaceAll("-", "/"), "rollout-fixture.jsonl"), [
+    JSON.stringify({ timestamp: ago(60 * 24 * 3), type: "session_meta", payload: { id: "codex-fixture" } }),
+    JSON.stringify({ timestamp: ago(60 * 24 * 3), type: "turn_context", payload: { model: "gpt-6.1-sol" } }),
+    codex(60 * 24 * 3 - 1, 40_000, 31_000, 9_000),
+    codex(60 * 24 * 3 - 9, 410_000, 352_000, 61_000),
+  ].join("\n") + "\n");
+
+  const geminiDay = new Date(now - 70 * 86400_000);
+  const gemini = join(HOME, ".gemini", "tmp", "docs-site", "chats", "session-fixture.json");
+  put(gemini, JSON.stringify({
+    sessionId: "gemini-fixture",
+    messages: [{ id: "g1", type: "gemini", timestamp: geminiDay.toISOString(), model: "gemini-3-flash-preview", tokens: { input: 7000, output: 400, cached: 5000, thoughts: 60, total: 7460 } }],
+  }));
+  utimesSync(gemini, geminiDay, geminiDay);
+  put(join(HOME, ".cursor", "argv.json"), "{}\n");
+}
+
 console.log(`fixture built at ${out}\n  HOME=${HOME}`);

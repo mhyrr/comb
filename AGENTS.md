@@ -36,6 +36,10 @@ comb is the work layer: Claude Code background agents, best with hive
 - `src/hive.ts`: the hive interface, including the read-only hive MCP client
   the page uses for tickets and memory.
 - `src/transcript.ts`: reads Claude Code transcripts into feed events.
+- `src/usage.ts`: token counts from Claude Code, Codex and Gemini CLI's local
+  files for the Now tab's usage panel, with a per-file cache in
+  `~/.comb/cache/usage.json`. `src/pricing.ts` is its one price table
+  (API-equivalent dollars, with the source date). `src/page/ui/usage.ts` draws it.
 - `src/page/`: comb's page (design §9.1). `server.ts` is the local server,
   `state.ts` the tree snapshot, `feed.ts` the transcript tail, `ui/` the
   browser code (plain TypeScript, bundled into the binary by Bun).
