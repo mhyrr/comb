@@ -363,9 +363,12 @@ one file in `reports/`, is not on a turn, and has done nothing for one day
 `src/page/state.ts`). Its last activity is its
 transcript's last event, or `log.md`'s mtime once Claude Code has pruned the
 transcript. Maya never folds. A parent stays while any child of its stays.
-Greg's own sessions fold the same way by last activity, with the same
-window, into a Finished
-group under Your sessions. The group opens with one click, and opens by
+Greg's own sessions fold only once their process has ended, then by last
+activity with the same window, into a Finished group under Your sessions.
+An open session never folds (2026-11-17): a terminal tab he keeps for
+weeks is a workspace, not finished work, and folding hid seven of his
+twelve open tabs. Your sessions shows the six most recent, working first,
+and a "N more, quiet" row opens the rest. The group opens with one click, and opens by
 itself when the selected row is in it. Folding deletes nothing: a message
 still wakes the agent, and a woken agent is back in the tree.
 

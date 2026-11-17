@@ -152,7 +152,7 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
       startedAt: typeof (row as any).startedAt === "number" ? new Date((row as any).startedAt).toISOString() : null,
       finished: false,
     };
-    if (kind === "interactive") node.finished = sessionFolds(node, now, foldAfter);
+    if (kind === "interactive") node.finished = sessionFolds({ ...node, ended: isEnded(row) }, now, foldAfter);
     (kind === "interactive" ? mine : others).push(node);
   }
   const recent = (a: SessionNode, b: SessionNode) =>
@@ -212,13 +212,18 @@ export function foldedAgents(
   return new Set(agents.filter((a) => folds(a.name, new Set())).map((a) => a.name));
 }
 
-/** Greg's own sessions fold the same way, by last activity alone. */
+/**
+ * Greg's own sessions fold only once their process has ended, then by last
+ * activity. An open one never folds: a terminal tab he keeps for weeks is a
+ * workspace he comes back to, not finished work (2026-11-17). The rail keeps
+ * the list short by showing the six most recent instead.
+ */
 export function sessionFolds(
-  s: Pick<SessionNode, "activity" | "lastActive" | "startedAt">,
+  s: Pick<SessionNode, "activity" | "lastActive" | "startedAt"> & { ended: boolean },
   now: number,
   after: number = FOLD_AFTER_MS,
 ): boolean {
-  return s.activity !== "working" && idleFor(s.lastActive ?? s.startedAt, now) >= after;
+  return s.ended && s.activity !== "working" && idleFor(s.lastActive ?? s.startedAt, now) >= after;
 }
 
 function mtimeOf(path: string): string | null {
