@@ -27,7 +27,7 @@ import { join } from "node:path";
 import { human, readCombConfig, type Human } from "../config";
 import { agentDir, GREG, readAgentSession, sendToAgent, validateAgentName } from "../agents";
 import { findClaudeBin, listLiveSessions, runProcess, type LiveSession, type Run } from "../claude";
-import { findGhBin, PullWatch } from "../github";
+import { findGhBin, forPage, PullWatch } from "../github";
 import { detectHive, HiveClient, hiveProjectPaths, listHiveProjects, type HiveSetup, type Ticket } from "../hive";
 import { resolveCombHome } from "../paths";
 import { formatNightly, runNightly } from "../nightly";
@@ -424,7 +424,8 @@ export function startPage(opts: PageOpts = {}) {
         if (!usage.ready && usageRun) await Promise.race([usageRun, Bun.sleep(1500)]);
         return json(usage.ready ? { ...usage.summary(), error: usageError } : { ready: false, error: usageError });
       }),
-      "/api/pulls": (req) => api(req, async () => json(await pulls.get())),
+      // Bot PRs reach the page only with pullsShowBots on; read per request, so a config edit needs no restart.
+      "/api/pulls": (req) => api(req, async () => json(forPage(await pulls.get(), readCombConfig(home).pullsShowBots))),
       "/api/projects": (req) => api(req, () => json({ projects: hiveOn ? listHiveProjects(setup.home) : [] })),
       "/api/memory": (req) => api(req, async (url) => {
         const project = url.searchParams.get("project") ?? "";
