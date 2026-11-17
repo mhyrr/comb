@@ -1,0 +1,379 @@
+<!doctype html>
+<!--
+  Static mock of the proposed Now tab (docs/design/2026-11-17-now-dashboard.md).
+  Not the product: comb's tokens are copied from src/page/ui/style.css so the
+  mock looks like comb, and every name and number belongs to the invented
+  fixture world (scripts/fixture/build.ts). Open it at any width; the layout
+  follows the page's own breakpoints (1440px and 980px of stage).
+  ?theme=dark forces dark. ?now=1 pins the clock for screenshots.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>comb Now mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fragment+Mono&family=Schibsted+Grotesk:wght@400..800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ground: #F3F4F7; --pane: #FFFFFF; --sunk: #F8F9FB;
+  --ink: #1D2033; --ink-2: #474C61; --graphite: #767B8C; --faint: #A3A7B4;
+  --hair: #E2E4EA; --hair-2: #ECEEF2;
+  --honey: #EFA00B; --honey-deep: #A86A00; --honey-wash: #FFF4D9;
+  --danger: #B93A26; --ok: #2E8A57; --select: #E9ECF6;
+  --away: rgb(29 32 51 / 0.035);
+  --shadow: 0 1px 2px rgb(29 32 51 / 0.05), 0 8px 28px -12px rgb(29 32 51 / 0.14);
+  --sans: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --mono: "Fragment Mono", ui-monospace, Menlo, monospace;
+  --t-xs: 12px; --t-sm: 13px; --t-md: 15px; --t-lg: 17px; --t-xl: 22px; --t-3xl: 52px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --dark: 1; } }
+:root[data-theme="dark"], :root.dark {
+  --ground: #12141C; --pane: #191C26; --sunk: #161821;
+  --ink: #E8E9EF; --ink-2: #B6B9C7; --graphite: #8A8E9E; --faint: #5E6272;
+  --hair: #2A2D3A; --hair-2: #232632;
+  --honey: #F4AE26; --honey-deep: #F4C062; --honey-wash: #33290F;
+  --danger: #EF7A62; --ok: #5CC28A; --select: #252A3B;
+  --away: rgb(255 255 255 / 0.025);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -12px rgb(0 0 0 / 0.5);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--ground); color: var(--ink); font: 400 var(--t-md)/1.5 var(--sans); -webkit-font-smoothing: antialiased; padding: 16px; }
+code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
+h2 { font-size: var(--t-lg); font-weight: 650; letter-spacing: -0.01em; margin: 0 0 14px; display: flex; align-items: baseline; gap: 8px; }
+h2 > span.n { color: var(--graphite); font-weight: 500; }
+h2 .aside { margin-left: auto; font-size: var(--t-sm); font-weight: 400; color: var(--graphite); }
+
+.stage { container: stage / inline-size; background: var(--pane); border-radius: 14px; box-shadow: var(--shadow); padding: 44px 48px 56px; max-width: 1760px; margin: 0 auto; }
+@container stage (max-width: 620px) { .stage-in { --pad: 0; } }
+@media (max-width: 620px) { body { padding: 0; } .stage { border-radius: 0; padding: 24px 16px 40px; } }
+
+/* ---------- PR strip (unchanged, abbreviated) ---------- */
+.prs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 28px; font-size: var(--t-sm); }
+.prs b { font-size: var(--t-sm); font-weight: 650; margin-right: 6px; }
+.prb { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--hair); border-radius: 999px; padding: 3px 10px 3px 8px; color: var(--ink-2); }
+.prb svg { width: 11px; height: 12px; }
+.tone-ok { fill: var(--ok); } .tone-wait { fill: var(--honey); } .tone-idle { fill: var(--faint); } .tone-bad { fill: var(--danger); }
+
+/* ---------- headline + strip ---------- */
+.now-head { font-size: var(--t-3xl); line-height: 1.04; font-weight: 650; letter-spacing: -0.035em; margin: 0 0 22px; text-wrap: balance; }
+@media (max-width: 620px) { .now-head { font-size: 36px; } }
+.strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); margin-bottom: 44px; }
+.fig { padding: 16px 20px 16px 0; text-decoration: none; color: inherit; display: block; }
+.fig + .fig { padding-left: 20px; border-left: 1px solid var(--hair-2); }
+.fig .k { font-size: var(--t-sm); color: var(--graphite); display: flex; align-items: center; gap: 6px; }
+.fig .v { font-size: 34px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.15; font-variant-numeric: tabular-nums; margin: 2px 0 2px; display: flex; align-items: baseline; gap: 8px; }
+.fig .v small { font-size: var(--t-md); font-weight: 500; color: var(--graphite); letter-spacing: 0; }
+.fig .c { font-size: var(--t-sm); color: var(--ink-2); }
+.fig .c .mono { color: var(--ink); }
+.fig:hover .v { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 5px; }
+.hex { width: 11px; height: 12px; flex: none; }
+.hex.working { fill: var(--honey); } .hex.idle { fill: none; stroke: var(--faint); stroke-width: 2; }
+.meter { height: 4px; border-radius: 2px; background: var(--hair-2); margin: 8px 0 6px; overflow: hidden; max-width: 180px; }
+.meter i { display: block; height: 100%; border-radius: 2px; background: var(--ink-2); }
+@container stage (max-width: 760px) {
+  .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fig:nth-child(3) { padding-left: 0; border-left: 0; }
+  .fig:nth-child(n+3) { border-top: 1px solid var(--hair-2); }
+}
+
+/* ---------- grid ---------- */
+/* Wide: queue | timeline across two columns, then tickets+reports | limits+tools+tokens.
+   Medium: queue | everything else. Phone: one column, queue first. */
+.grid { display: grid; gap: 44px 48px; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 0.82fr); grid-template-rows: auto 1fr; align-items: start; }
+.c1 { grid-column: 1; grid-row: 1 / 3; }
+.s-timeline { grid-column: 2 / 4; grid-row: 1; }
+.c2 { grid-column: 2; grid-row: 2; }
+.c3 { grid-column: 3; grid-row: 2; }
+.col { display: flex; flex-direction: column; gap: 44px; min-width: 0; }
+@container stage (max-width: 1439px) {
+  .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto 1fr; }
+  .c1 { grid-row: 1 / 4; }
+  .s-timeline { grid-column: 2; grid-row: 1; }
+  .c2 { grid-column: 2; grid-row: 2; }
+  .c3 { grid-column: 2; grid-row: 3; }
+}
+@container stage (max-width: 980px) {
+  .grid { display: flex; flex-direction: column; gap: 44px; }
+  .c2, .c3 { display: contents; }
+  .c1 { order: 1; } .s-timeline { order: 2; } .s-tickets { order: 3; } .s-limits { order: 4; } .s-tools { order: 5; } .s-reports { order: 6; } .s-tokens { order: 7; }
+}
+
+/* ---------- queue ---------- */
+.qcard { border: 1px solid var(--hair); border-radius: 12px; padding: 20px 24px 20px; background: var(--pane); }
+.qcard + .qcard { margin-top: 14px; }
+.qcard.cur { border-color: var(--ink-2); box-shadow: 0 0 0 1px var(--ink-2); }
+.qmeta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--t-sm); color: var(--graphite); }
+.qmeta .kind { color: var(--ink); font-weight: 600; } .qmeta b { color: var(--ink-2); font-weight: 600; } .qmeta time { margin-left: auto; }
+.qcard h3 { font-size: var(--t-xl); line-height: 1.25; font-weight: 650; letter-spacing: -0.02em; margin: 10px 0 12px; text-wrap: balance; }
+.out { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 6px; font-size: var(--t-md); color: var(--ink-2); }
+.out li { display: grid; grid-template-columns: 76px 1fr; gap: 10px; }
+.out li > b { color: var(--ink); font-weight: 600; font-size: var(--t-sm); padding-top: 2px; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { border: 1px solid var(--hair); background: var(--pane); border-radius: 9px; padding: 8px 12px 8px 16px; font: 500 var(--t-md)/1.2 var(--sans); color: var(--ink); display: inline-flex; align-items: center; gap: 10px; }
+.btn.go { background: var(--ink); color: var(--pane); border-color: var(--ink); }
+.btn kbd { font-size: 11px; line-height: 1; border: 1px solid currentColor; border-radius: 4px; padding: 2px 4px; opacity: 0.55; }
+.keys { font-size: var(--t-xs); color: var(--graphite); margin: 12px 0 0; }
+.keys kbd { border: 1px solid var(--hair); border-radius: 4px; padding: 1px 4px; color: var(--ink-2); }
+.more { color: var(--graphite); font-size: var(--t-sm); margin-top: 14px; }
+
+/* ---------- timeline ---------- */
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--t-xs); color: var(--graphite); margin: -6px 0 14px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.lg-bar { width: 16px; height: 6px; border-radius: 3px; background: var(--honey); }
+.lg-idle { width: 16px; height: 0; border-top: 1px dashed var(--faint); }
+.lg-you { width: 16px; height: 6px; border-radius: 3px; background: var(--faint); opacity: .6; }
+.lane { display: grid; grid-template-columns: 176px minmax(0, 1fr) 120px; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--hair-2); }
+.lane .who { min-width: 0; }
+.lane .who b { display: block; font-family: var(--mono); font-size: 12.5px; font-weight: 400; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lane .who span { display: block; font-size: var(--t-xs); color: var(--graphite); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track { position: relative; height: 22px; }
+.track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed var(--hair); }
+.away { position: absolute; top: -9px; bottom: -10px; background: var(--away); }
+.bar { position: absolute; top: 8px; height: 6px; border-radius: 3px; background: var(--honey); }
+.bar.live { box-shadow: 2px 0 0 0 var(--pane), 4px 0 0 0 var(--honey); }
+.bar.you { background: var(--faint); opacity: .55; }
+.mk { position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--pane); border: 2px solid var(--ink); box-shadow: 0 0 0 2px var(--pane); }
+.mk.answered { background: var(--ink); }
+.mk.done { border-radius: 0; border: 0; background: none; box-shadow: none; width: 13px; height: 14px; margin: -7px 0 0 -6.5px; }
+.mk.done svg { display: block; width: 13px; height: 14px; fill: var(--ok); stroke: var(--pane); stroke-width: 2; }
+.mk.blocked svg { fill: var(--danger); }
+.state { text-align: right; font-size: var(--t-sm); line-height: 1.3; }
+.state b { display: block; font-weight: 600; }
+.state span { color: var(--graphite); font-size: var(--t-xs); }
+.state .w { color: var(--honey-deep); }
+.axis { display: grid; grid-template-columns: 176px minmax(0, 1fr) 120px; gap: 12px; padding-top: 8px; font: 11px/1 var(--mono); color: var(--graphite); }
+.axis .ticks { position: relative; height: 12px; }
+.axis .ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.axis .ticks span:last-child { transform: translateX(-100%); color: var(--ink); }
+.tl-note { font-size: var(--t-sm); color: var(--ink-2); margin: 0 0 14px; }
+.tl-foot { font-size: var(--t-xs); color: var(--graphite); margin: 12px 0 0; }
+.tip { position: absolute; z-index: 2; right: 14%; top: -34px; background: var(--ink); color: var(--pane); font-size: var(--t-xs); line-height: 1.4; padding: 7px 10px; border-radius: 7px; white-space: nowrap; pointer-events: none; }
+.s-timeline { container: tl / inline-size; }
+@container tl (max-width: 640px) {
+  .lane, .axis { grid-template-columns: minmax(0, 1fr) 96px; }
+  .lane .who { grid-column: 1 / -1; display: flex; gap: 8px; align-items: baseline; }
+  .lane .track { grid-column: 1; }
+  .axis > :first-child { display: none; }
+  .axis .ticks span:nth-child(even) { display: none; }
+  .tip { display: none; }
+}
+
+/* ---------- tickets / reports (abbreviated) ---------- */
+.pts { list-style: none; margin: 0; padding: 0; }
+.pt { display: grid; grid-template-columns: 14px 1fr auto; gap: 12px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--hair-2); }
+.pt svg { width: 12px; height: 13px; margin-top: 5px; }
+.pt .t { font-weight: 500; } .pt .m { display: block; font-size: var(--t-sm); color: var(--graphite); }
+.small-btn { border: 1px solid var(--hair); background: var(--pane); border-radius: 8px; padding: 5px 12px; font: 500 var(--t-sm) var(--sans); color: var(--ink); }
+.rc { padding: 10px 0; border-bottom: 1px solid var(--hair-2); }
+.rc b { font-weight: 600; } .rc span { display: block; font-size: var(--t-sm); color: var(--graphite); }
+
+/* ---------- limits ---------- */
+.lim + .lim { margin-top: 14px; }
+.lim .row { display: flex; justify-content: space-between; font-size: var(--t-sm); font-weight: 600; }
+.lim .row span { font-weight: 400; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.lim .track2 { height: 8px; border-radius: 4px; background: var(--hair-2); margin: 6px 0 4px; overflow: hidden; }
+.lim .track2 i { display: block; height: 100%; border-radius: 4px; background: var(--ink-2); }
+.lim small { font-size: var(--t-xs); color: var(--graphite); }
+.src { font-size: var(--t-xs); color: var(--graphite); margin: 12px 0 0; display: flex; gap: 6px; align-items: baseline; }
+.src .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--honey-deep); flex: none; transform: translateY(-1px); }
+
+/* ---------- tools ---------- */
+.tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.tool { border: 1px solid var(--hair); border-radius: 10px; padding: 10px 12px; min-width: 0; position: relative; }
+.tool b { display: block; font-weight: 600; font-size: var(--t-md); }
+.tool b code { font-weight: 400; }
+.tool span { display: block; font-size: var(--t-xs); color: var(--graphite); }
+.tool.bad span.why { color: var(--danger); }
+.tool.bad::after { content: ""; position: absolute; top: 14px; right: 12px; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); }
+.tool.quiet { border-style: dashed; }
+.tools-foot { font-size: var(--t-xs); color: var(--graphite); margin: 10px 0 0; }
+
+/* ---------- tokens (unchanged, collapsed) ---------- */
+.tok { display: flex; gap: 28px; }
+.tok div b { display: block; font-size: 28px; font-weight: 600; letter-spacing: -0.03em; }
+.tok div span { font-size: var(--t-xs); color: var(--graphite); }
+.unchanged { font-size: var(--t-xs); color: var(--graphite); margin-top: 10px; }
+.annot { outline: 1px dashed var(--honey-deep); outline-offset: 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+  <div class="prs"><b>Pull requests 3</b>
+    <span class="prb"><svg viewBox="0 0 22 24" class="tone-ok"><path d="M11 1.5 20.5 7v10L11 22.5 1.5 17V7z"/></svg>docs-site <span class="mono">#12</span></span>
+    <span class="prb"><svg viewBox="0 0 22 24" class="tone-wait"><path d="M11 1.5 20.5 7v10L11 22.5 1.5 17V7z"/></svg>acme-api <span class="mono">#41</span></span>
+    <span class="prb"><svg viewBox="0 0 22 24" class="tone-idle"><path d="M11 1.5 20.5 7v10L11 22.5 1.5 17V7z"/></svg>web-app <span class="mono">#7</span></span>
+  </div>
+
+  <h1 class="now-head">Three things wait on you.</h1>
+
+  <div class="strip" role="list">
+    <a class="fig" role="listitem" href="#timeline">
+      <span class="k"><svg class="hex working" viewBox="0 0 22 24"><path d="M11 1.5 20.5 7v10L11 22.5 1.5 17V7z"/></svg>Working now</span>
+      <span class="v">1 <small>of 5 agents</small></span>
+      <span class="c"><span class="mono">acme-api-tk42-rate-limits</span>, for 37m</span>
+    </a>
+    <a class="fig" role="listitem" href="#queue">
+      <span class="k">Waiting on you</span>
+      <span class="v">3</span>
+      <span class="c">Oldest 3h, from <span class="mono">docs-site-search</span></span>
+    </a>
+    <a class="fig" role="listitem" href="#prs">
+      <span class="k">Ready to merge</span>
+      <span class="v">1 <small>of 3 PRs</small></span>
+      <span class="c">1 with CI running, 1 waiting on review</span>
+    </a>
+    <a class="fig" role="listitem" href="#limits">
+      <span class="k">Session limit</span>
+      <span class="v">38% <small>used</small></span>
+      <span class="c">Resets in 2h 20m · week 61%</span>
+    </a>
+  </div>
+
+  <div class="grid">
+    <!-- column 1: the queue stays the main column -->
+    <div class="col c1" id="queue">
+      <section>
+        <h2>Waiting on you <span class="n">3</span></h2>
+        <article class="qcard cur">
+          <div class="qmeta"><span class="kind">Ready for review</span><span>from <b>docs-site-search</b></span><span>docs-site TK-12</span><time>3h ago</time></div>
+          <h3>Review: docs-site client-side search</h3>
+          <ul class="out">
+            <li><b>Go</b><span>docs-site-search marks TK-12 done and hands you the branch to merge.</span></li>
+            <li><b>Not now</b><span>The branch stays open; the agent hears your reason and stops.</span></li>
+            <li><b>Redirect</b><span>The agent gets your instruction and carries on from there.</span></li>
+          </ul>
+          <div class="btns"><span class="btn go">Go <kbd>G</kbd></span><span class="btn">Not now <kbd>N</kbd></span><span class="btn">Redirect <kbd>R</kbd></span></div>
+          <p class="keys"><kbd>J</kbd> <kbd>K</kbd> move between cards · a key picks the button, <kbd>↵</kbd> sends it</p>
+        </article>
+        <article class="qcard">
+          <div class="qmeta"><span class="kind">Decision</span><span>from <b>Maya</b></span><span>acme-api TK-42</span><time>40m ago</time></div>
+          <h3>Rate-limit counters: Postgres or Redis</h3>
+          <ul class="out">
+            <li><b>Go</b><span>acme-api-tk42-rate-limits ships Postgres advisory locks, Maya's pick.</span></li>
+            <li><b>Not now</b><span>It keeps building against the interface; nothing ships.</span></li>
+            <li><b>Redirect</b><span>Say "Redis" and it ships Redis instead.</span></li>
+          </ul>
+          <div class="btns"><span class="btn go">Go <kbd>G</kbd></span><span class="btn">Not now <kbd>N</kbd></span><span class="btn">Redirect <kbd>R</kbd></span></div>
+        </article>
+        <article class="qcard">
+          <div class="qmeta"><span class="kind">Proposal</span><span>from <b>Maya</b></span><span>acme-api TK-51</span><time>8m ago</time></div>
+          <h3>Start acme-api TK-51: rotate API keys</h3>
+          <ul class="out">
+            <li><b>Go</b><span>Maya starts task agent acme-api-tk51 on Sonnet.</span></li>
+            <li><b>Not now</b><span>Nothing starts. hive may pick it again tomorrow.</span></li>
+          </ul>
+          <div class="btns"><span class="btn go">Go · Sonnet <kbd>G</kbd></span><span class="btn">Not now <kbd>N</kbd></span><span class="btn">Redirect <kbd>R</kbd></span></div>
+        </article>
+        <p class="more">You answered 2 today.</p>
+      </section>
+    </div>
+
+    <!-- what happened while you were away: across columns 2 and 3 on wide screens -->
+    <section class="s-timeline" id="timeline">
+        <h2>What each agent did <span class="aside">last 24 hours</span></h2>
+        <p class="tl-note">You were away 17:40–21:15. <b>docs-site-search</b> finished and is waiting on you; <b>acme-api-tk42-rate-limits</b> is still working.</p>
+        <div class="legend">
+          <span><i class="lg-bar"></i>Working</span>
+          <span><i class="lg-idle"></i>Idle</span>
+          <span><i class="mk-l" style="width:10px;height:10px;border:2px solid var(--ink);border-radius:50%;display:inline-block"></i>Asked you</span>
+          <span><svg class="hex" viewBox="0 0 22 24" style="fill:var(--ok)"><path d="M11 1.5 20.5 7v10L11 22.5 1.5 17V7z"/></svg>Finished</span>
+          <span><svg class="hex" viewBox="0 0 22 24" style="fill:var(--danger)"><path d="M11 1.5 20.5 7v10L11 22.5 1.5 17V7z"/></svg>Blocked</span>
+        </div>
+        <div id="lanes"></div>
+        <div class="axis"><span></span><div class="ticks" id="ticks"></div><span></span></div>
+        <p class="tl-foot">Bars are turns, from each agent's transcripts. 1 agent did nothing today: web-app-bundle-size.</p>
+      </section>
+
+    <!-- column 2: what is next -->
+    <div class="col c2">
+
+      <section class="s-tickets">
+        <h2>Priority tickets <span class="n">2</span></h2>
+        <ul class="pts">
+          <li class="pt"><svg viewBox="0 0 22 24" style="fill:var(--danger)"><path d="M11 1.5 20.5 7v10L11 22.5 1.5 17V7z"/></svg><span><span class="t">Settings page flashes unstyled on first load</span><span class="m">web-app <span class="mono">TK-7</span></span></span><span class="small-btn">Start</span></li>
+          <li class="pt"><svg viewBox="0 0 22 24" style="fill:var(--ink)"><path d="M11 1.5 20.5 7v10L11 22.5 1.5 17V7z"/></svg><span><span class="t">Rotate API keys without downtime</span><span class="m">acme-api <span class="mono">TK-51</span></span></span><span class="small-btn">Start</span></li>
+        </ul>
+      </section>
+
+      <section class="s-reports">
+        <h2>Finished work</h2>
+        <div class="rc"><b>docs-site search: built and verified</b><span>docs-site-search, today</span></div>
+        <div class="rc"><b>web-app bundle: 312 KB to 188 KB</b><span>web-app-bundle-size, Nov 8</span></div>
+      </section>
+    </div>
+
+    <!-- column 3: room left and what's broken -->
+    <div class="col c3">
+      <section class="s-limits" id="limits">
+        <h2>Limits</h2>
+        <div class="lim"><div class="row">Current session <span>38%</span></div><div class="track2"><i style="width:38%"></i></div><small>Resets in 2h 20m</small></div>
+        <div class="lim"><div class="row">Current week, all models <span>61%</span></div><div class="track2"><i style="width:61%"></i></div><small>Resets Fri 6:47pm</small></div>
+        <p class="src"><i class="dot"></i><span>As of 4m ago, from comb's status line. Fable's weekly bar is only in <code>/usage</code>.</span></p>
+      </section>
+
+      <section class="s-tools">
+        <h2>Tools the agents use <span class="aside">last 7 days</span></h2>
+        <div class="tools">
+          <div class="tool"><b>hive</b><span>5 agents · 1,284 calls</span></div>
+          <div class="tool"><b>comb</b><span>5 agents · 212 calls</span></div>
+          <div class="tool"><b>playwright</b><span>2 agents · 96 calls</span></div>
+          <div class="tool"><b><code>gh</code> CLI</b><span>3 agents · 58 runs</span></div>
+          <div class="tool"><b>context7</b><span>1 agent · 14 calls</span></div>
+          <div class="tool bad"><b>github</b><span class="why">Not connecting · 400 bad auth header</span></div>
+          <div class="tool bad"><b>notes</b><span class="why">Not connecting · refused, since Nov 12</span></div>
+          <div class="tool quiet"><b>calendar</b><span>Connected · unused</span></div>
+        </div>
+        <p class="tools-foot">Plus built-ins: Bash 3.1k · Read 2.4k · Edit 880. Health from Claude Code's MCP logs, last start 6m ago.</p>
+      </section>
+
+      <section class="s-tokens">
+        <h2>Claude Code tokens</h2>
+        <div class="tok"><div><b>60.6K</b><span>output today</span></div><div><b>448K</b><span>last 7 days</span></div></div>
+        <p class="unchanged">The rest of the usage panel (daily chart, models, harnesses) is unchanged and sits here.</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+// Fixture-world lanes. Times are hours on a 24h axis ending "now" (21:47).
+const NOW = 21 + 47 / 60, START = NOW - 24;
+const h = (s) => { const [a, b] = s.split(":").map(Number); let t = a + b / 60; if (t > NOW) t -= 24; return t; };
+const pct = (t) => ((t - START) / 24) * 100;
+const HEXP = "M11 1.5 20.5 7v10L11 22.5 1.5 17V7z";
+const lanes = [
+  { name: "maya", about: "Chief of staff", spans: [["22:05", "22:12"], ["07:40", "07:52"], ["12:30", "12:41"], ["20:10", "20:15"], ["21:05", "21:09"], ["21:33", "21:40"]],
+    marks: [["asked", "21:07"], ["asked", "21:39"], ["answered", "12:36"]], state: ["2 waiting", "40m", true] },
+  { name: "acme-api-tk42-rate-limits", about: "TK-42 rate limits", spans: [["20:14", "21:05"], ["21:10", "21:47"]], live: true,
+    marks: [], state: ["Working", "37m on this turn"] },
+  { name: "acme-api-tk42-review", about: "Reviews TK-42", spans: [["21:37", "21:43"]], marks: [], state: ["Idle", "told its parent"] },
+  { name: "docs-site-search", about: "Client-side search", spans: [["16:47", "17:31"], ["17:36", "18:12"], ["18:15", "18:48"]],
+    marks: [["done", "18:47"], ["asked", "18:58"]], state: ["Waiting on you", "3h", true], tip: "17:36–18:12 working · 36m · 214 tool calls" },
+  { name: "You", about: "your sessions", you: true, spans: [["08:30", "12:10"], ["13:00", "17:40"], ["21:15", "21:47"]], marks: [], state: ["Here", "since 21:15"] },
+];
+const away = [h("17:40"), h("21:15")];
+document.getElementById("lanes").innerHTML = lanes.map((l) => {
+  const awayEl = `<i class="away" style="left:${pct(away[0])}%;width:${pct(away[1]) - pct(away[0])}%"></i>`;
+  const bars = l.spans.map(([a, b], i) => `<i class="bar${l.you ? " you" : ""}${l.live && i === l.spans.length - 1 ? " live" : ""}" style="left:${pct(h(a))}%;width:${Math.max(0.6, pct(h(b)) - pct(h(a)))}%"></i>`).join("");
+  const marks = l.marks.map(([k, t]) => k === "done"
+    ? `<i class="mk done" style="left:${pct(h(t))}%"><svg viewBox="0 0 22 24"><path d="${HEXP}"/></svg></i>`
+    : `<i class="mk${k === "answered" ? " answered" : ""}" style="left:${pct(h(t))}%"></i>`).join("");
+  const tip = l.tip ? `<span class="tip">${l.tip}</span>` : "";
+  const [s, sub, warm] = l.state;
+  return `<div class="lane"><div class="who"><b>${l.name}</b><span>${l.about}</span></div><div class="track">${awayEl}${bars}${marks}${tip}</div><div class="state"><b${warm ? ' class="w"' : ""}>${s}</b><span>${sub}</span></div></div>`;
+}).join("");
+const ticks = ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00"].map((t) => [t, h(t)]).sort((a, b) => a[1] - b[1]);
+document.getElementById("ticks").innerHTML = ticks.map(([t, v]) => `<span style="left:${pct(v)}%">${t}</span>`).join("") + `<span style="left:100%">now</span>`;
+const q = new URLSearchParams(location.search);
+if (q.get("theme") === "dark") document.documentElement.dataset.theme = "dark";
+else if (q.get("theme") === "light") document.documentElement.dataset.theme = "light";
+else if (matchMedia("(prefers-color-scheme: dark)").matches) document.documentElement.dataset.theme = "dark";
+</script>
+</body>
+</html>
