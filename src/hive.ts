@@ -166,6 +166,26 @@ export function parseTicketLine(project: string, line: string): Ticket | null {
   };
 }
 
+/**
+ * Each registered project with the `path:` its config.md names (~ expanded).
+ * A project without a readable config or a path is left out.
+ */
+export function hiveProjectPaths(hiveHome: string = resolveHiveHome()): { name: string; path: string }[] {
+  const out: { name: string; path: string }[] = [];
+  for (const name of listHiveProjects(hiveHome)) {
+    let raw: string;
+    try {
+      raw = readFileSync(join(hiveHome, "projects", name, "config.md"), "utf-8");
+    } catch {
+      continue; // intentional: an unreadable config names no path
+    }
+    const m = raw.match(/^path:\s*(.+)$/m);
+    if (!m) continue;
+    out.push({ name, path: m[1]!.trim().replace(/^["']|["']$/g, "").replace(/^~(?=\/)/, homedir()) });
+  }
+  return out;
+}
+
 /** Registered hive projects, from the registry folder. */
 export function listHiveProjects(hiveHome: string = resolveHiveHome()): string[] {
   const dir = join(hiveHome, "projects");
