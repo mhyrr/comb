@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_USER_NAME, human, readCombConfig, renderTemplate, userLabel } from "../config";
+import { DEFAULT_USER_NAME, human, type CombConfig, readCombConfig, renderTemplate, userLabel } from "../config";
 import { detectHive } from "../hive";
 import { buildSnapshot } from "../page/state";
 
@@ -91,7 +91,7 @@ describe("readCombConfig", () => {
 });
 
 test("names: the page says You, prompts say the user, a set name is used everywhere", () => {
-  const unset = { userName: null, hive: "auto" as const, identityFile: null, nightlyAsks: false };
+  const unset: CombConfig = { ...readCombConfig(home), userName: null };
   expect(userLabel(unset)).toEqual({ name: "You", initial: "Y" });
   expect(human(unset)).toEqual({ name: "the user", Name: "The user" });
   const set = { ...unset, userName: "greg" };

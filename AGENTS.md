@@ -62,6 +62,14 @@ comb is the work layer: Claude Code background agents, best with hive
   server).
   Regenerate `docs/img/` from it, never from a real `~/.comb`.
 
+## Checks
+
+Before you call work done, run `bun run typecheck` (`tsc --noEmit`, strict; it
+covers `src/`, `src/page/ui`, the tests and `scripts/`, and `bun run build`
+runs it first) and `bun test`. Bun's bundler does not type-check, so a broken
+import in `src/page/ui` passes the tests and only shows in a browser. Fix the
+type; do not add `any` or `@ts-ignore`.
+
 ## Build and install
 
 `bun run build`, then rm and cp `comb-bin` to `~/.local/bin/comb` and
