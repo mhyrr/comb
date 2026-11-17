@@ -7,7 +7,8 @@
  *     "identityFile": "~/me.md",  the identity agents get when hive is off
  *     "nightlyAsks": false,       file hive's briefing asks into the queue (§9.3; off by default)
  *     "defaultModel": "opus",     the model for delegated work when none is named (D25)
- *     "foldAfterHours": 24        idle hours before finished work folds on the page (D22)
+ *     "foldAfterHours": 24,       idle hours before finished work folds on the page (D22)
+ *     "pullsShowBots": false      show Dependabot and other bot PRs on Now's PR strip (off by default)
  *   }
  *
  * The human's internal id stays "greg" (GREG in agents.ts) whatever the name:
@@ -38,6 +39,8 @@ export type CombConfig = {
   defaultModel: Model;
   /** Idle hours before a finished agent, or one of the human's sessions, folds on the page (D22). */
   foldAfterHours: number;
+  /** Show bot PRs (Dependabot and the like) on the Now tab's PR strip, one badge per repo. Off unless set to true. */
+  pullsShowBots: boolean;
 };
 
 /** The page folds finished work after one idle day unless foldAfterHours says otherwise. */
@@ -74,6 +77,7 @@ export function readCombConfig(home: string = resolveCombHome(), onError?: (msg:
   }
   const file = str(raw.identityFile);
   if (raw.nightlyAsks !== undefined && typeof raw.nightlyAsks !== "boolean") onError?.('"nightlyAsks" must be true or false; using false');
+  if (raw.pullsShowBots !== undefined && typeof raw.pullsShowBots !== "boolean") onError?.('"pullsShowBots" must be true or false; using false');
   if (raw.defaultModel !== undefined && !isModel(raw.defaultModel)) {
     onError?.(`"defaultModel" must be one of ${MODELS.join(", ")}; using ${DEFAULT_MODEL}`);
   }
@@ -87,6 +91,7 @@ export function readCombConfig(home: string = resolveCombHome(), onError?: (msg:
     nightlyAsks: raw.nightlyAsks === true,
     defaultModel: isModel(raw.defaultModel) ? raw.defaultModel : DEFAULT_MODEL,
     foldAfterHours: foldOk ? fold : DEFAULT_FOLD_AFTER_HOURS,
+    pullsShowBots: raw.pullsShowBots === true,
   };
 }
 

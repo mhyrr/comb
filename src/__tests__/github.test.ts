@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { Run } from "../claude";
-import { ciOf, groupPulls, parseGithubRemote, PullWatch, readPulls, repoForPath, toPull, type Pull } from "../github";
+import { ciOf, forPage, groupPulls, parseGithubRemote, PullWatch, readPulls, repoForPath, toPull, type Pull, type PullsReport } from "../github";
 import { hiveProjectPaths } from "../hive";
 
 let dir: string;
@@ -86,6 +86,21 @@ describe("ciOf", () => {
     expect(ciOf([run("COMPLETED", "TIMED_OUT")])).toBe("failing");
     expect(ciOf([{ __typename: "StatusContext", state: "PENDING" }])).toBe("pending");
     expect(ciOf([{ __typename: "StatusContext", state: "ERROR" }])).toBe("failing");
+  });
+});
+
+describe("forPage", () => {
+  test("bot PRs leave the strip unless pullsShowBots is on; people's and agents' PRs stay", () => {
+    const human = toPull("dobby", "mhyrr/dobby", ghPull(28, { head: "worktree-dobby-tk070" }));
+    const bot = toPull("revrec", "mhyrr/revrec", ghPull(113, { login: "app/dependabot", bot: true }));
+    const report: PullsReport = {
+      at: "2026-11-17T20:00:00Z", ...groupPulls([human, bot]), repos: 2, skipped: [], failed: [], problem: null, refreshing: false,
+    };
+    const off = forPage(report, false);
+    expect(off.bots).toEqual([]);
+    expect(off.pulls.map((p) => p.number)).toEqual([28]);
+    expect(off.repos).toBe(2);
+    expect(forPage(report, true).bots.map((g) => g.pulls.map((p) => p.number))).toEqual([[113]]);
   });
 });
 

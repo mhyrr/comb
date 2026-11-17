@@ -159,6 +159,14 @@ export function groupPulls(all: Pull[]): { pulls: Pull[]; bots: BotGroup[] } {
   return { pulls, bots };
 }
 
+/**
+ * What the page gets: bot PRs only when `showBots` (config.json's
+ * pullsShowBots) is on. gh still reads them; the strip leaves them out.
+ */
+export function forPage(r: PullsReport, showBots: boolean): PullsReport {
+  return showBots ? r : { ...r, bots: [] };
+}
+
 /** gh on PATH, else where Homebrew and the installer put it. Null when none. */
 export function findGhBin(exists: (p: string) => boolean = existsSync): string | null {
   if (process.env.COMB_GH_BIN) return process.env.COMB_GH_BIN;
