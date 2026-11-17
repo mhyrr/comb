@@ -15,6 +15,7 @@
  *   POST /api/agent/:name/terminal  a terminal tab in the agent's directory running `hive attach <name>`
  *   GET  /api/inbox/:file       a saved image
  *   GET  /api/usage             token counts per AI harness on this machine (src/usage.ts)
+ *   GET  /api/pulls             open GitHub PRs in hive's projects (gh, read-only, cached)
  *
  * Loopback only, and every request must name this server as its Host (and
  * Origin, for a POST), so no other site can drive the agents.
@@ -26,7 +27,8 @@ import { join } from "node:path";
 import { human, readCombConfig, type Human } from "../config";
 import { agentDir, GREG, readAgentSession, sendToAgent, validateAgentName } from "../agents";
 import { findClaudeBin, listLiveSessions, runProcess, type LiveSession, type Run } from "../claude";
-import { detectHive, HiveClient, listHiveProjects, type HiveSetup, type Ticket } from "../hive";
+import { findGhBin, PullWatch } from "../github";
+import { detectHive, HiveClient, hiveProjectPaths, listHiveProjects, type HiveSetup, type Ticket } from "../hive";
 import { resolveCombHome } from "../paths";
 import { formatNightly, runNightly } from "../nightly";
 import { isModel, MODELS } from "../models";
@@ -56,6 +58,12 @@ export type PageOpts = {
   nightlyMs?: number;
   /** Where the usage panel reads each harness's files. The real home's when omitted. */
   usageRoots?: Roots;
+  /** The gh CLI; null means gh is not installed. Found when omitted. */
+  ghBin?: string | null;
+  /** How old the open-PR cache may get before a read refreshes it. */
+  pullsTtlMs?: number;
+  /** Refresh open PRs on start and at this interval while a page is open. Off when unset. */
+  pullsMs?: number;
 };
 
 const FEED_MS = 600;
@@ -83,6 +91,19 @@ export function startPage(opts: PageOpts = {}) {
   const hiveBin = !hiveOn ? null : opts.hiveBin !== undefined ? opts.hiveBin : findHiveBin();
   const enc = new TextEncoder();
   const noHive = () => json({ error: "Tickets and memory come from hive, which is not installed.", hive: false }, 404);
+
+  // --- open GitHub PRs in hive's projects (the page server runs gh) ---------
+  const pulls = new PullWatch({
+    projects: () => hiveOn ? hiveProjectPaths(setup.home) : [],
+    gh: opts.ghBin !== undefined ? opts.ghBin : findGhBin(),
+    run,
+    ttlMs: opts.pullsTtlMs ?? 4 * 60_000,
+  });
+  let pullsTimer: ReturnType<typeof setInterval> | null = null;
+  if (opts.pullsMs && hiveOn) {
+    void pulls.refresh();
+    pullsTimer = setInterval(() => { if (stateClients.size > 0 && pulls.stale()) void pulls.refresh(); }, opts.pullsMs);
+  }
 
   // --- live state ----------------------------------------------------------
   let live: LiveSession[] = [];
@@ -403,6 +424,7 @@ export function startPage(opts: PageOpts = {}) {
         if (!usage.ready && usageRun) await Promise.race([usageRun, Bun.sleep(1500)]);
         return json(usage.ready ? { ...usage.summary(), error: usageError } : { ready: false, error: usageError });
       }),
+      "/api/pulls": (req) => api(req, async () => json(await pulls.get())),
       "/api/projects": (req) => api(req, () => json({ projects: hiveOn ? listHiveProjects(setup.home) : [] })),
       "/api/memory": (req) => api(req, async (url) => {
         const project = url.searchParams.get("project") ?? "";
@@ -421,6 +443,7 @@ export function startPage(opts: PageOpts = {}) {
     async stop() {
       clearInterval(timer);
       if (nightlyTimer) clearInterval(nightlyTimer);
+      if (pullsTimer) clearInterval(pullsTimer);
       server.stop(true);
       await hive.close();
     },

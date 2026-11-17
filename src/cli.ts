@@ -87,7 +87,7 @@ async function main(args: string[]): Promise<void> {
       open();
       return;
     }
-    startPage({ port, nightlyMs: NIGHTLY_EVERY_MS });
+    startPage({ port, nightlyMs: NIGHTLY_EVERY_MS, pullsMs: 60_000 });
     console.log(`${new Date().toISOString()} comb's page is serving at ${url}`);
     if (!serveOnly) open();
     await new Promise(() => {}); // serve until stopped

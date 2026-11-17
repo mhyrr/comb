@@ -3,6 +3,7 @@
  * server-sent events (the tree's state, and one transcript per open view),
  * and keyed updates in the rail so a working cell keeps its motion.
  */
+import type { BotGroup, Pull, PullsReport } from "../../github";
 import type { Ticket } from "../../hive";
 import type { QueueItem } from "../../queue";
 import type { FeedEvent } from "../../transcript";
@@ -693,6 +694,7 @@ function renderNow() {
   if (!document.getElementById("dash")) {
     qShown = new Set();
     stage.innerHTML = `<div class="stage-scroll"><div class="stage-inner dash" id="dash">
+      <section class="now-pulls" id="now-pulls" aria-label="Pull requests"></section>
       <header class="now-top" id="now-top"></header>
       <div class="dash-grid">
         <div class="dash-main">
@@ -754,8 +756,9 @@ function renderNow() {
   } else {
     // Rows above the reader may come and go; the one in view stays put.
     holdingPlace(dashScroller(), () => Array.from(document.querySelectorAll<HTMLElement>(
-      "#now-top, #q-head, #q-cards > .qcard, #q-rest li, #now-live > *, #now-notes > *")), draw);
+      "#now-pulls > *, #now-top, #q-head, #q-cards > .qcard, #q-rest li, #now-live > *, #now-notes > *")), draw);
   }
+  void fillPulls();
   void fillTickets();
   void fillUsage();
   void fillReports();
@@ -782,6 +785,67 @@ async function fillUsage() {
   setSection("now-usage", usageHtml(usageCache!.data));
   const el = document.getElementById("now-usage");
   if (el) wireUsage(el);
+}
+
+// --- Now: open pull requests on GitHub, above the queue. Links only; review happens there.
+
+let pullsData: PullsReport | null = null;
+let pullsAt = 0;
+
+async function fillPulls() {
+  if (!snap?.hive) { setSection("now-pulls", ""); return; }
+  // While the server refreshes in the background, look again soon.
+  const wait = pullsData?.refreshing ? 4_000 : 60_000;
+  if (!pullsData || Date.now() - pullsAt > wait) {
+    pullsAt = Date.now();
+    try {
+      pullsData = await getJSON<PullsReport>("/api/pulls");
+    } catch (err) {
+      if (route.view === "now") setSection("now-pulls", `<div class="prs"><span class="pr-note">Couldn't read pull requests: ${esc((err as Error).message)}</span></div>`);
+      return;
+    }
+  }
+  if (route.view !== "now" || !pullsData) return;
+  setSection("now-pulls", pullsHtml(pullsData));
+}
+
+const CI_TEXT: Record<Pull["ci"], string> = { passing: "CI passing", failing: "CI failing", pending: "CI running", none: "no CI" };
+const REVIEW_TEXT: Record<string, string> = { APPROVED: "approved", CHANGES_REQUESTED: "changes requested", REVIEW_REQUIRED: "review required" };
+
+/** CI as a small hex: red failing, ink passing, dashed running, hollow none. */
+function ciMark(ci: Pull["ci"]): string {
+  return `<svg class="pr-ci ci-${ci}" viewBox="0 0 22 24" aria-hidden="true"><path d="${HEX}"/></svg>`;
+}
+
+/** One badge per PR, "dobby #28"; the title and state ride in the tooltip. A draft has a dashed edge. */
+function pullBadge(p: Pull): string {
+  const state = [p.draft ? "draft" : "", CI_TEXT[p.ci], p.review ? REVIEW_TEXT[p.review] ?? "" : "", p.agent ? "" : `by ${p.author}`, `updated ${agoLong(p.updated)}`].filter(Boolean).join(", ");
+  return `<a class="prb${p.draft ? " draft" : ""} ci-${p.ci}" href="${esc(p.url)}" target="_blank" rel="noreferrer" title="${esc(`${p.title}\n${state}`)}" aria-label="${esc(`${p.project} #${p.number}: ${p.title} (${state})`)}">${ciMark(p.ci)}<span>${esc(p.project)}</span><span class="mono">#${p.number}</span></a>`;
+}
+
+/** Bot PRs in one repo, as one badge linking to that repo's open bot PRs. */
+function botBadge(g: BotGroup): string {
+  const failing = g.pulls.filter((p) => p.ci === "failing").length;
+  const n = g.pulls.length;
+  const href = `https://github.com/${g.repo}/pulls?q=${encodeURIComponent(`is:pr is:open author:app/${g.pulls[0]!.author}`)}`;
+  const state = `${n} from ${g.pulls[0]!.author}${failing ? `, ${failing} failing CI` : ""}`;
+  return `<a class="prb bots ci-${failing ? "failing" : "none"}" href="${esc(href)}" target="_blank" rel="noreferrer" title="${esc(`${g.pulls.map((p) => `#${p.number} ${p.title}`).join("\n")}\n${state}`)}" aria-label="${esc(`${g.project}: ${n} dependency updates, ${state}`)}">${ciMark(failing ? "failing" : "none")}<span>${esc(g.project)}</span><span class="deps">· ${n} deps</span></a>`;
+}
+
+function pullsHtml(r: PullsReport): string {
+  // The count is the PRs that need a person; dependency updates count on their own badges.
+  const deps = r.bots.reduce((n, g) => n + g.pulls.length, 0);
+  const notes = [
+    r.problem,
+    r.failed.length && !r.problem ? `Couldn't read ${r.failed.map((f) => f.repo).join(", ")}: ${r.failed[0]!.error}` : "",
+    r.skipped.length ? `Not on GitHub: ${r.skipped.map((s) => s.project).join(", ")}.` : "",
+  ].filter(Boolean) as string[];
+  const repos = `${r.repos} ${r.repos === 1 ? "repo" : "repos"}`;
+  const checked = r.at ? `, checked ${agoTag(r.at, true)}` : "";
+  const lead = r.problem ? "" : r.pulls.length + deps ? `From ${repos}${checked}. ` : `No open pull requests in ${repos}${checked}. `;
+  const note = `<span class="pr-note">${lead}${notes.map(esc).join(" ")}</span>`;
+  if (!r.pulls.length && !deps) return r.at ? `<div class="prs"><h2>Pull requests</h2>${note}</div>` : "";
+  return `<div class="prs"><h2>Pull requests <span>${r.pulls.length}</span></h2>${r.pulls.map(pullBadge).join("")}${r.bots.map(botBadge).join("")}${note}</div>`;
 }
 
 function queueCard(q: QueueItem): string {

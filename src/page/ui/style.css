@@ -368,6 +368,34 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 .start-sent { font-size: var(--t-sm); color: var(--graphite); padding-top: 5px; white-space: nowrap; }
 .pt .problem { grid-column: 2 / 4; margin: 6px 0 0; font-size: var(--t-sm); }
 
+/* Pull requests on GitHub: one wrapping strip of badges above the queue (Greg, 2026-11-17).
+   The hex is CI: red failing, ink passing, dashed running, hollow none. A draft has a dashed edge. */
+.now-pulls { margin-bottom: 32px; }
+.now-pulls:empty { display: none; }
+.prs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.prs > h2 { font-size: var(--t-md); font-weight: 650; margin: 0 6px 0 0; display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.prs > h2 span { color: var(--faint); font-weight: 500; font-variant-numeric: tabular-nums; }
+.prb {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px 0 7px;
+  border: 1px solid var(--hair); border-radius: 8px; background: var(--pane);
+  font-size: var(--t-sm); color: var(--ink); text-decoration: none; white-space: nowrap;
+}
+.prb .mono { font-size: 12px; color: var(--graphite); }
+.prb .deps { color: var(--graphite); }
+.prb.draft { border-style: dashed; border-color: var(--faint); }
+.prb.ci-failing { border-color: color-mix(in srgb, var(--danger) 45%, var(--hair)); }
+.prb:hover { border-color: var(--ink); border-style: solid; }
+.prb:hover .mono { color: var(--ink); }
+.pr-ci { width: 11px; height: 12px; flex: none; }
+.pr-ci path { stroke-width: 2.6; }
+.pr-ci.ci-passing path { fill: var(--ink); stroke: var(--ink); }
+.pr-ci.ci-failing path { fill: var(--danger); stroke: var(--danger); }
+.pr-ci.ci-pending path { fill: none; stroke: var(--graphite); stroke-dasharray: 3.2 2.4; }
+.pr-ci.ci-none path { fill: none; stroke: var(--faint); }
+.pr-note { color: var(--faint); font-size: var(--t-xs); margin-left: 4px; }
+.pr-note time { color: inherit; }
+
+
 .report-card { display: flex; flex-direction: column; gap: 4px; text-decoration: none; padding: 14px 0; border-top: 1px solid var(--hair-2); }
 .report-card:first-of-type { border-top: 0; padding-top: 2px; }
 .rc-head b { font-weight: 600; line-height: 1.35; }
