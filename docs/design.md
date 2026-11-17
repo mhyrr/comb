@@ -333,6 +333,28 @@ dashboard as too busy, too long, and read-only.
   `src/pricing.ts`, with its source date, and are labeled API-equivalent.
   Models without a price we trust (Haiku 5.5, fast mode, every non-Claude
   model) are left out of the dollars, and the panel says how much was left out.
+- Plan limits (top of the usage panel, `src/limits.ts`, added 2026-11-17,
+  Greg: "I care most about my limits"). These are the session (5-hour) and
+  weekly bars from Claude Code's `/usage`. Claude Code hands them to the
+  statusLine command as `rate_limits.five_hour` and `rate_limits.seven_day`
+  (`used_percentage`, `resets_at`); this is the only documented,
+  credential-free source. comb does not own the status line: Greg's is Vibe
+  Island's, which writes that object as-is to `~/.vibe-island/cache/rl.json`,
+  and comb reads that file read-only. comb does not edit the statusLine
+  script (it runs in every Claude session) and touches no credentials or
+  endpoints. The file changes only when an interactive session renders its
+  status line, so the panel shows "as of" its mtime, marks it stale after 30
+  minutes, and drops a window's percentage once its `resets_at` has passed.
+  A missing file says where the bars come from. The per-model weekly bar
+  (Fable) is not in `rate_limits`, so the panel says it is only in `/usage`.
+  Reading Vibe Island's cached plan-usage response for it is Greg's
+  decision, pending.
+- Layout of Now's grid. Tickets, usage and reports are grid items placed by
+  area. With the stage at least 1440px wide (a 2120px window with Maya open,
+  1730px without), Now has three columns: queue | tickets, then reports |
+  usage, with usage at the top of its own column. Below that it falls back to
+  two columns, with usage between tickets and reports, and at 980px and under
+  to one column.
 
 **Finished.** Finished agents fold out of the tree into a collapsed
 **Finished** group under it (D22). A task agent folds when it has at least

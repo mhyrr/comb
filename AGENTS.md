@@ -36,6 +36,9 @@ comb is the work layer: Claude Code background agents, best with hive
 - `src/hive.ts`: the hive interface, including the read-only hive MCP client
   the page uses for tickets and memory.
 - `src/transcript.ts`: reads Claude Code transcripts into feed events.
+- `src/limits.ts`: the plan-limit bars (session and weekly), read only from
+  Vibe Island's copy of Claude Code's statusLine `rate_limits`. The one module
+  that knows that source.
 - `src/usage.ts`: token counts from Claude Code, Codex and Gemini CLI's local
   files for the Now tab's usage panel, with a per-file cache in
   `~/.comb/cache/usage.json`. `src/pricing.ts` is its one price table
