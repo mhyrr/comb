@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { Outbox, SENT_TTL_MS, statusLine, unsettled, type Outgoing, type Turn } from "../page/ui/outbox";
+import { Outbox, SENT_TTL_MS, sendStatus, unsettled, type Outgoing, type Turn } from "../page/ui/outbox";
 
 const T0 = Date.parse("2026-11-17T22:00:00Z");
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -45,7 +45,7 @@ test("a failed send keeps its text, says why, and Retry delivers it", async () =
   expect(await done).toBe(false);
   expect(item.state).toBe("failed");
   expect(item.text).toBe("Ship it");
-  expect(statusLine(item, "Maya")).toBe("Not sent. comb's server is not answering.");
+  expect(sendStatus(item, "Maya")).toBe("Not sent. comb's server is not answering.");
 
   // A failure never settles away by time, and never looks sent.
   box.settle("maya", [], T0 + SENT_TTL_MS * 2);
@@ -55,7 +55,7 @@ test("a failed send keeps its text, says why, and Retry delivers it", async () =
   expect(item.state).toBe("sending");
   g.answer({ ok: true, woke: true });
   expect(await again).toBe(true);
-  expect(statusLine(item, "Maya")).toBe("Sent. Maya was asleep and is waking up.");
+  expect(sendStatus(item, "Maya")).toBe("Sent. Maya was asleep and is waking up.");
   expect(g.calls).toEqual(["Ship it", "Ship it"]);
 });
 

@@ -24,9 +24,9 @@ export type Outgoing = {
 };
 
 /** The feed events that can settle a message: Greg's own turns. */
-export type Turn = { k: string; from?: string; text?: string; at: string };
+export type Turn = { k: string; from?: string; text?: string; at?: string };
 
-/** The transcript's clock and the browser's are one machine's, but allow for write delay ordering. */
+/** How far before the send a matching turn may be stamped (one machine, two clocks reading it). */
 export const SKEW_MS = 5_000;
 /** A message the server took but the transcript never shows stops showing after this. */
 export const SENT_TTL_MS = 10 * 60_000;
@@ -35,13 +35,13 @@ const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 
 /**
  * The messages still waiting for their turn, in send order. A failed message
- * stays until Greg retries or sends again, even if a turn matches: a failure
- * must not vanish without his seeing it, unless the turn proves it arrived.
+ * never ages out: it stays until Greg retries or sends again, or until a
+ * matching turn proves it arrived after all.
  */
 export function unsettled(out: readonly Outgoing[], turns: readonly Turn[], now = Date.now()): Outgoing[] {
   const mine = turns
-    .filter((t) => t.k === "in" && t.from === "greg" && typeof t.text === "string")
-    .map((t) => ({ text: norm(t.text!), at: Date.parse(t.at), used: false }));
+    .filter((t) => t.k === "in" && t.from === "greg" && typeof t.text === "string" && typeof t.at === "string")
+    .map((t) => ({ text: norm(t.text!), at: Date.parse(t.at!), used: false }));
   const left: Outgoing[] = [];
   for (const o of [...out].sort((a, b) => a.at - b.at)) {
     const want = norm(o.text);
@@ -57,7 +57,7 @@ export function unsettled(out: readonly Outgoing[], turns: readonly Turn[], now 
 }
 
 /** The small line under a message: what happened to it. */
-export function statusLine(o: Outgoing, name: string): string {
+export function sendStatus(o: Outgoing, name: string): string {
   if (o.state === "sending") return "Sending…";
   if (o.state === "failed") return `Not sent. ${o.error ?? "The send failed."}`;
   return o.woke ? `Sent. ${name} was asleep and is waking up.` : "Sent";

@@ -11,7 +11,7 @@ import type { Activity, AgentNode, Now, SessionNode, Snapshot } from "../state";
 import { esc, md as markdown } from "./md";
 import { admit, holdingPlace, patchList, setHtml } from "./patch";
 import { treeOrder } from "./tree";
-import { Outbox, statusLine, type Outgoing } from "./outbox";
+import { Outbox, sendStatus, type Outgoing } from "./outbox";
 import { usageHtml, wireUsage, type UsagePayload } from "./usage";
 import { modelLabel, MODELS, picksModel } from "../../models";
 
@@ -289,10 +289,14 @@ function composer(to: string): HTMLElement {
   const shots: { path: string; url: string }[] = [];
   const drawShots = () => {
     shotsEl.innerHTML = shots.map((s, i) => `<span class="shot-chip"><img src="${esc(s.url)}" alt=""><button type="button" data-drop="${i}" aria-label="Remove screenshot">×</button></span>`).join("");
-    btn.disabled = sending || (!ta.value.trim() && !shots.length);
+    btn.disabled = !ta.value.trim() && !shots.length || sending();
   };
-  let sending = false;
   const composed = () => [ta.value.trim(), ...shots.map((s) => `[Screenshot: ${s.path}]`)].filter(Boolean).join("\n\n");
+  /** The box holds a message already on its way: Enter again would send it twice. */
+  const sending = () => {
+    const box = norm(composed());
+    return !!box && outbox.for(to).some((o) => o.state === "sending" && norm(o.text) === box);
+  };
   shotsEl.addEventListener("click", (e) => {
     const i = (e.target as HTMLElement).closest<HTMLElement>("[data-drop]")?.dataset.drop;
     if (i !== undefined) { shots.splice(Number(i), 1); drawShots(); }
@@ -321,7 +325,7 @@ function composer(to: string): HTMLElement {
   const size = () => {
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
-    btn.disabled = sending || (!ta.value.trim() && !shots.length);
+    btn.disabled = !ta.value.trim() && !shots.length || sending();
   };
   ta.addEventListener("paste", (e) => {
     const files = [...(e.clipboardData?.files ?? [])];
@@ -357,9 +361,14 @@ function composer(to: string): HTMLElement {
         size();
       }
     }
-    if (mine.some((o) => fromBox.has(o.id) && o.state === "failed")) {
+    size();
+    const failed = mine.filter((o) => fromBox.has(o.id) && o.state === "failed");
+    if (failed.length) {
+      const kept = failed.some((o) => norm(o.text) === norm(composed()));
       hint.className = "hint err";
-      hint.textContent = "Not sent. Your message is still here: press Enter, or Retry above, to send it again.";
+      hint.textContent = kept
+        ? "Not sent. Your message is still here: press Enter, or Retry above, to send it again."
+        : "A message did not send. Retry it above.";
     } else if (hint.classList.contains("err") && hint.textContent?.startsWith("Not sent")) {
       hint.className = "hint";
       hint.textContent = "";
@@ -368,19 +377,11 @@ function composer(to: string): HTMLElement {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const text = composed();
-    if (sending || !text) return;
+    if (!text || sending()) return;
     hint.className = "hint";
     hint.textContent = "";
-    sending = true;
-    size();
-    const { item, done } = outbox.send(to, text);
+    const { item } = outbox.send(to, text);
     fromBox.add(item.id);
-    try {
-      await done;
-    } finally {
-      sending = false;
-      size();
-    }
   });
   return wrap;
 }
@@ -532,7 +533,7 @@ function retryClick(e: Event): boolean {
 
 /** The line under one of Greg's unsettled messages. Failure reads in red with a Retry. */
 function outStatus(o: Outgoing, to: string): string {
-  const line = esc(statusLine(o, who(to)));
+  const line = esc(sendStatus(o, who(to)));
   if (o.state === "failed") return `<div class="out-status failed" role="alert">${line} <button type="button" data-retry="${esc(o.id)}">Retry</button></div>`;
   return `<div class="out-status ${o.state}"${o.state === "sending" ? ' aria-live="polite"' : ""}>${line}</div>`;
 }
