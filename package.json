@@ -7,10 +7,15 @@
   "description": "A supervision tree of Claude Code background agents, with a live page and a queue",
   "scripts": {
     "test": "bun test",
-    "build": "bun build src/cli.ts --compile --outfile comb-bin && bun build src/mcp-server.ts --compile --outfile comb-mcp"
+    "typecheck": "tsc --noEmit",
+    "build": "bun run typecheck && bun build src/cli.ts --compile --outfile comb-bin && bun build src/mcp-server.ts --compile --outfile comb-mcp"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",
     "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "^7.0.2"
   }
 }
