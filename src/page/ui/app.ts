@@ -469,7 +469,9 @@ function renderRail() {
     if (list.length > 6) {
       const li = document.createElement("li");
       li.className = "more-li";
-      li.innerHTML = `<button class="more" type="button">${expanded[which] ? "Show fewer" : `Show ${list.length - 6} more`}</button>`;
+      // Your sessions are sorted working first, then newest, so the hidden ones are the quiet ones.
+      const more = which === "mine" ? `${list.length - 6} more, quiet` : `Show ${list.length - 6} more`;
+      li.innerHTML = `<button class="more" type="button">${expanded[which] ? "Show fewer" : more}</button>`;
       li.querySelector("button")!.addEventListener("click", () => { expanded[which] = !expanded[which]; renderRail(); });
       ul.appendChild(li);
     }
