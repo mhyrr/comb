@@ -56,6 +56,63 @@ export function unsettled(out: readonly Outgoing[], turns: readonly Turn[], now 
   return left;
 }
 
+/**
+ * What a composer does with the messages it sent, given the text its box
+ * holds now. The composer keeps its own references: the transcript can record
+ * a turn before the server answers the send, and then `settle` has already
+ * taken the message out of the outbox while it still reads "sending".
+ *
+ * - `clear`: a message was accepted and the box still holds its text.
+ * - `held`: what to keep watching. A sending message stays even when the
+ *   outbox has let it go; a failed one stays while the outbox still shows it
+ *   (a resend or a matching turn removes it); an accepted one is done.
+ * - `failed`: failed messages still shown, for the hint under the box.
+ * - `inFlight`: the box's text is already on its way, so Enter would send it twice.
+ */
+export function boxAfter(held: readonly Outgoing[], box: string, live: ReadonlySet<string>) {
+  const text = norm(box);
+  const same = (o: Outgoing) => !!text && norm(o.text) === text;
+  const accepted = held.filter((o) => o.state === "sent");
+  const failed = held.filter((o) => o.state === "failed" && live.has(o.id));
+  const keep = held.filter((o) => o.state === "sending" || failed.includes(o));
+  return {
+    clear: accepted.some(same),
+    held: keep,
+    failed,
+    failedHere: failed.some(same),
+    inFlight: keep.some((o) => o.state === "sending" && same(o)),
+  };
+}
+
+/**
+ * One composer's messages, for boxAfter. app.ts and the tests share it, so
+ * the order of send, hold and check is the one the page runs.
+ */
+export class BoxWatch {
+  private held: Outgoing[] = [];
+
+  constructor(private readonly outbox: Outbox, private readonly to: string) {}
+
+  /** Sends the box's text. send() already runs check() once, through the subscriber. */
+  send(text: string, now = Date.now()) {
+    const { item, done } = this.outbox.send(this.to, text, now);
+    this.held.push(item);
+    return { item, done };
+  }
+
+  /** Call on every outbox change with what the box holds now. */
+  check(box: string) {
+    const after = boxAfter(this.held, box, new Set(this.outbox.for(this.to).map((o) => o.id)));
+    this.held = after.held;
+    return after;
+  }
+
+  /** The box's text is already on its way. */
+  inFlight(box: string): boolean {
+    return boxAfter(this.held, box, new Set()).inFlight;
+  }
+}
+
 /** The small line under a message: what happened to it. */
 export function sendStatus(o: Outgoing, name: string): string {
   if (o.state === "sending") return "Sending…";

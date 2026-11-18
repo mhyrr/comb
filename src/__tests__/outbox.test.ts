@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { Outbox, SENT_TTL_MS, sendStatus, unsettled, type Outgoing, type Turn } from "../page/ui/outbox";
+import { boxAfter, BoxWatch, Outbox, SENT_TTL_MS, sendStatus, unsettled, type Outgoing, type Turn } from "../page/ui/outbox";
 
 const T0 = Date.parse("2026-11-17T22:00:00Z");
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -105,4 +105,84 @@ test("messages to other agents are left alone", async () => {
   await box.send("comb-x", "go", T0).done;
   box.settle("maya", [turn("go", T0 + 100)], T0 + 200);
   expect(box.items.map((o) => o.to)).toEqual(["comb-x"]);
+});
+
+/**
+ * A composer as app.ts wires it: a BoxWatch, checked on every outbox change
+ * against what the box holds, clearing the box when told to.
+ */
+function composerOver(box: Outbox, to: string, text: string) {
+  const watch = new BoxWatch(box, to);
+  const c = { text, failedHint: false, watch };
+  box.subscribe(() => {
+    const after = watch.check(c.text);
+    if (after.clear) c.text = "";
+    c.failedHint = after.failedHere;
+  });
+  return c;
+}
+
+test("the box clears on accept even when the transcript settled the message first", async () => {
+  // Greg's bug (2026-11-18): the real relay writes the turn before /api/send
+  // answers, so settle() drops the message while it still reads "sending".
+  const g = gate();
+  const box = new Outbox(g.post);
+  const c = composerOver(box, "maya", "Ship it");
+  const { done } = c.watch.send(c.text, T0);
+
+  box.settle("maya", [turn("Ship it", T0 + 300)], T0 + 400);
+  expect(box.for("maya")).toEqual([]); // one copy: the real turn
+  expect(c.text).toBe("Ship it"); // not accepted yet
+  expect(c.watch.inFlight(c.text)).toBe(true); // Enter again would double it
+
+  g.answer({ ok: true, woke: false });
+  await done;
+  expect(c.text).toBe("");
+  expect(c.watch.inFlight("Ship it")).toBe(false);
+});
+
+test("the box clears on accept in the plain order too: accepted, then the turn", async () => {
+  const g = gate();
+  const box = new Outbox(g.post);
+  const c = composerOver(box, "maya", "Ship it");
+  const { done } = c.watch.send(c.text, T0);
+  g.answer({ ok: true, woke: true });
+  await done;
+  expect(c.text).toBe("");
+});
+
+test("a failed send keeps the text in the box and says so; Retry then clears it", async () => {
+  const g = gate();
+  const box = new Outbox(g.post);
+  const c = composerOver(box, "maya", "Ship it");
+  const { item, done } = c.watch.send(c.text, T0);
+  g.answer({ ok: false, error: "comb's server is not answering." });
+  await done;
+  expect(c.text).toBe("Ship it");
+  expect(c.failedHint).toBe(true);
+
+  const again = box.retry(item.id, T0 + 5_000)!;
+  g.answer({ ok: true, woke: false });
+  await again;
+  expect(c.text).toBe("");
+  expect(c.failedHint).toBe(false);
+});
+
+test("accepting a message leaves a box alone once Greg has typed something else", async () => {
+  const g = gate();
+  const box = new Outbox(g.post);
+  const c = composerOver(box, "maya", "Ship it");
+  const { done } = c.watch.send(c.text, T0);
+  c.text = "And one more thing";
+  g.answer({ ok: true, woke: false });
+  await done;
+  expect(c.text).toBe("And one more thing");
+});
+
+test("a failed message that was sent again stops counting as failed", () => {
+  const failed = out("Ship it", T0, "failed", "a");
+  const after = boxAfter([failed], "Ship it", new Set()); // the resend took it out of the outbox
+  expect(after.failed).toEqual([]);
+  expect(after.held).toEqual([]);
+  expect(after.clear).toBe(false);
 });
