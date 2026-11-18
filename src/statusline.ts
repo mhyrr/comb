@@ -118,6 +118,8 @@ export async function installStatusLine(opts: {
   }
   const command = teeCommand(opts.bin ?? combBinary());
   const saved = await backup(opts.home, settingsPath, now);
+  // comb init's other steps may have failed before ~/.comb existed; this step stands alone.
+  await mkdir(opts.home, { recursive: true });
   const state: SavedState = { previous: current, installedAt: now.toISOString(), command };
   await writeFile(statePath(opts.home), JSON.stringify(state, null, 2) + "\n");
   // Only the command changes: padding, refreshInterval and any other key stay.

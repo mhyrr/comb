@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { UsageError } from "../errors";
+import { runInitSteps } from "../init";
 import {
   GUARD_ENV, installStatusLine, isCombCommand, rateLimitsPath, readState, runTee, saveRateLimits,
   statePath, statusLineStatus, teeCommand, undoStatusLine,
@@ -127,6 +128,35 @@ describe("install and undo", () => {
     await rm(settingsPath, { force: true });
     await installStatusLine({ home, settingsPath, bin: BIN });
     expect(await readSettings()).toEqual({ statusLine: { type: "command", command: `${BIN} statusline` } });
+  });
+});
+
+describe("comb init's steps", () => {
+  test("a failed page-service reload no longer skips the explicit status-line install", async () => {
+    // What maya hit on 2026-11-17: launchctl's bootstrap race (exit 5) stopped init before the tee.
+    await writeFile(settingsPath, JSON.stringify({ statusLine: { type: "command", command: "~/bin/old-status" } }));
+    const freshHome = join(dir, "fresh-comb-home"); // never created: init's scaffold step also failed
+    const printed: string[] = [];
+    const run = runInitSteps([
+      { label: "init", run: async () => { throw new Error("comb repo not found"); } },
+      { label: "page service", run: async () => { throw new Error("launchctl bootstrap exited 5"); } },
+      { label: "statusline", run: async () => (await installStatusLine({ home: freshHome, settingsPath, bin: BIN })).message },
+    ], (line) => printed.push(line));
+    await expect(run).rejects.toThrow("comb init finished with 2 failures; the other steps ran.\ninit: comb repo not found\npage service: launchctl bootstrap exited 5");
+    expect(printed[0]).toBe("init: failed: comb repo not found");
+    expect(printed[1]).toBe("page service: failed: launchctl bootstrap exited 5");
+    expect(printed[2]).toStartWith("statusline: installed.");
+    expect(((await readSettings()).statusLine as { command: string }).command).toBe(`${BIN} statusline`);
+    expect((await readState(freshHome))!.previous?.command).toBe("~/bin/old-status");
+  });
+
+  test("when every step works, all print in order and nothing throws", async () => {
+    const printed: string[] = [];
+    await runInitSteps([
+      { label: "a", run: async () => ["one", "two"] },
+      { label: "b", run: async () => "three" },
+    ], (line) => printed.push(line));
+    expect(printed).toEqual(["one", "two", "three"]);
   });
 });
 

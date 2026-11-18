@@ -681,7 +681,10 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   Only on the user's yes: `comb init` asks in a terminal and otherwise only
   says how; `--install-statusline` is the yes, `--undo-statusline` restores
   the old `statusLine` object (kept in `~/.comb/statusline.json`) and
-  refuses if someone has changed it since. Only the command changes; other
+  refuses if someone has changed it since. `comb init`'s steps (scaffold,
+  page service, status line) each run whatever the others did, and the
+  command exits non-zero naming what failed: on 2026-11-17 launchctl's
+  bootstrap race (exit 5) had stopped init before the status-line step. Only the command changes; other
   keys (`padding`, `refreshInterval`) stay, and settings.json is backed up to
   `~/.comb/backups/` before every write. The page reads settings.json to warn
   when the tee is gone (another tool may rewrite the status line). Cost,

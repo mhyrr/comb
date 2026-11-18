@@ -30,6 +30,30 @@ export function resolveCombRepo(cwd: string = process.cwd()): string {
 
 export type InitResult = { lines: string[] };
 
+/** One part of `comb init`: what it is called, and what it prints. */
+export type InitStep = { label: string; run: () => Promise<string | string[]> };
+
+/**
+ * Runs `comb init`'s steps so that one failing never skips the rest: an
+ * explicit --install-statusline must not depend on the page service reloading
+ * (launchctl's bootstrap race exits 5 now and then). Every step runs; the
+ * failures are printed where they happen and thrown together at the end, so
+ * the command still exits non-zero.
+ */
+export async function runInitSteps(steps: InitStep[], print: (line: string) => void): Promise<void> {
+  const failed: string[] = [];
+  for (const step of steps) {
+    try {
+      for (const line of [await step.run()].flat()) print(line);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      failed.push(`${step.label}: ${message}`);
+      print(`${step.label}: failed: ${message}`);
+    }
+  }
+  if (failed.length) throw new Error(`comb init finished with ${failed.length === 1 ? "a failure" : `${failed.length} failures`}; the other steps ran.\n${failed.join("\n")}`);
+}
+
 export async function combInit(opts: {
   home?: string;
   repo?: string;

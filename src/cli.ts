@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 
 import { formatAgentList, listAgents, sendToAgent, startAgent } from "./agents";
 import { UsageError } from "./errors";
-import { combInit } from "./init";
+import { combInit, runInitSteps } from "./init";
 import { detectHive, HIVE_URL } from "./hive";
 import { formatNightly, NIGHTLY_EVERY_MS, runNightly } from "./nightly";
 import { startPage } from "./page/server";
@@ -68,9 +68,12 @@ async function main(args: string[]): Promise<void> {
       console.log((await undoStatusLine({ home })).message);
       return;
     }
-    for (const line of (await combInit()).lines) console.log(line);
-    console.log(await installPageService({ home }));
-    console.log(await offerStatusLine(home, install));
+    // Each step runs whatever the one before did (D28): a failed page reload never skips the status line.
+    await runInitSteps([
+      { label: "init", run: async () => (await combInit()).lines },
+      { label: "page service", run: () => installPageService({ home }) },
+      { label: "statusline", run: () => offerStatusLine(home, install) },
+    ], (line) => console.log(line));
     return;
   }
   if (cmd === "list") {
