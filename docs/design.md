@@ -281,8 +281,8 @@ reason on a queue item, and a short message to any agent.
 ### 9.1 The page, first cut (built 2026-11-11)
 
 It is always up at `http://127.0.0.1:4747`: `comb init` installs a launchd
-agent, `com.comb.page`, that runs `comb page --serve` at login and restarts it
-if it exits (log: `~/.comb/logs/page.log`). Greg never starts it (D16);
+agent, `com.comb.page`, that runs `comb page --serve` (through `/bin/sh`,
+D29) at login and restarts it if it exits (log: `~/.comb/logs/page.log`). Greg never starts it (D16);
 `comb page` just opens it. It answers what hive's dashboard
 does not: it is one screen, live, and interactive. Greg rejected the hive
 dashboard as too busy, too long, and read-only.
@@ -691,6 +691,28 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   measured over 50 runs against a no-op old command: 34 ms at p50 and 55 ms
   at p95 over running the old command alone, all of it comb's startup. The
   rule "never change global Claude config" keeps holding for everything else.
+- **D29. The page service runs comb through /bin/sh, and init restarts it in
+  place** (2026-11-18, TK-006). Every reinstall showed macOS's "'comb' can
+  run in the background". backgroundtaskmanagementd's log gives the cause.
+  When launchd rescans LaunchAgents, BTM re-checks each item. If the plist or
+  the program changed, it compares the program's code requirement (LWCR).
+  The same LWCR keeps the item as notified, with no toast. A new LWCR marks
+  it as not notified, and the toast follows. comb's binary is ad-hoc signed,
+  so its requirement is its cdhash. Bun's builds are not even reproducible,
+  so every build is new code. Re-signing with a fixed `--identifier` does not
+  help: tested, and BTM still logged a new item. So the plist runs
+  `/bin/sh -c 'exec "$0" "$@"' ~/.local/bin/comb page ...`, the way hive's
+  agents run `/bin/bash`. /bin/sh is Apple-signed and never changes. Login
+  Items and the toast name the item "sh". The switch itself shows one last
+  toast. Separately, `comb init` leaves an unchanged plist untouched: a
+  rewrite with the same bytes still triggers a rescan. In that case init runs
+  `launchctl kickstart -k`, which restarts the running service on the new
+  binary. A kickstart failure falls back to bootout and bootstrap, and init
+  says so. The bootstrap is retried once for the exit-5 race. Not fixed here:
+  "'comb' was prevented from modifying apps". TCC named comb as the
+  responsible process of a Google Chrome that the page's children launched.
+  Because comb's cdhash changes, a stored answer never matches. Only a stable
+  signing identity (a real certificate) fixes that.
 
 ## 11. Open questions
 

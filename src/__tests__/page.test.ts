@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFile, mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -374,42 +374,118 @@ describe("page service", () => {
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "comb-svc-")); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
-  function fakeLaunchctl(bootstrapCode = 0) {
+  /** A fake launchctl. bootstrapCodes and kickstartCode are its exit codes, in call order. */
+  function fakeLaunchctl(o: { bootstrapCodes?: number[]; kickstartCode?: number } = {}) {
     const calls: string[][] = [];
+    const bootstraps = [...(o.bootstrapCodes ?? [])];
     const run: Run = async (argv) => {
       calls.push(argv);
       if (argv[1] === "bootout") return { code: 3, stdout: "", stderr: "No such process" };
-      return { code: bootstrapCode, stdout: "", stderr: bootstrapCode ? "Bootstrap failed: 5" : "" };
+      if (argv[1] === "kickstart") {
+        const code = o.kickstartCode ?? 0;
+        return { code, stdout: "", stderr: code ? "Could not find service \"com.comb.page\" in domain for user gui: 501" : "" };
+      }
+      const code = bootstraps.shift() ?? 0;
+      return { code, stdout: "", stderr: code ? "Bootstrap failed: 5: Input/output error" : "" };
     };
     return { calls, run };
   }
 
-  test("installs a login agent that runs the installed binary, then reloads it on the next init", async () => {
+  async function setup(lc: ReturnType<typeof fakeLaunchctl>) {
     const bin = join(dir, "comb");
     await writeFile(bin, "");
     const agents = join(dir, "LaunchAgents");
+    const plistPath = join(agents, "com.comb.page.plist");
+    return { bin, plistPath, opts: { home: join(dir, "home"), bin, launchAgentsDir: agents, run: lc.run, uid: 501, retryDelayMs: 0 } };
+  }
+  const reload = (plistPath: string) => [
+    ["launchctl", "bootout", "gui/501/com.comb.page"],
+    ["launchctl", "bootstrap", "gui/501", plistPath],
+  ];
+
+  test("installs a login agent that runs the installed binary through /bin/sh", async () => {
     const lc = fakeLaunchctl();
-    const opts = { home: join(dir, "home"), bin, launchAgentsDir: agents, run: lc.run, uid: 501 };
+    const { bin, plistPath, opts } = await setup(lc);
 
     expect(await installPageService(opts)).toContain("installed com.comb.page");
-    const plist = await Bun.file(join(agents, "com.comb.page.plist")).text();
-    expect(plist).toContain(`<string>${bin}</string>\n        <string>page</string>\n        <string>--serve</string>`);
+    const plist = await Bun.file(plistPath).text();
+    // BTM keys the login item on the program's code requirement; /bin/sh's never changes (TK-006).
+    expect(plist).toContain(`<array>\n        <string>/bin/sh</string>\n        <string>-c</string>\n        <string>exec "$0" "$@"</string>\n        <string>${bin}</string>\n        <string>page</string>\n        <string>--serve</string>`);
     expect(plist).toContain("<key>KeepAlive</key>\n    <true/>");
     expect(plist).toContain("/opt/homebrew/bin"); // launchd's bare PATH would not find bun or claude
-    expect(lc.calls).toEqual([
-      ["launchctl", "bootout", "gui/501/com.comb.page"],
-      ["launchctl", "bootstrap", "gui/501", join(agents, "com.comb.page.plist")],
-    ]);
-    expect(await installPageService(opts)).toContain("reloaded com.comb.page");
+    expect(lc.calls).toEqual(reload(plistPath));
   });
 
-  test("says so when comb is not installed, and fails visibly when launchd refuses", async () => {
+  test("the plist's /bin/sh line runs the binary with the page's arguments", async () => {
+    const lc = fakeLaunchctl();
+    const { plistPath, opts } = await setup(lc);
+    await installPageService(opts);
+    const args = [...(await Bun.file(plistPath).text()).matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]!);
+    const argv = args.slice(args.indexOf("/bin/sh"), args.indexOf("/bin/sh") + 8);
+    const echo = join(dir, "echo-args");
+    await writeFile(echo, `#!/bin/sh\nprintf '%s|' "$@"\n`, { mode: 0o755 });
+    argv[3] = echo;
+    const out = Bun.spawnSync(argv).stdout.toString();
+    expect(out).toBe("page|--serve|--port|4747|");
+  });
+
+  test("an unchanged plist is left alone and the running service is restarted in place", async () => {
+    const lc = fakeLaunchctl();
+    const { plistPath, opts } = await setup(lc);
+    await installPageService(opts);
+    const mtime = (await stat(plistPath)).mtimeMs;
+    lc.calls.length = 0;
+    await Bun.sleep(20);
+
+    expect(await installPageService(opts)).toContain("restarted com.comb.page on the installed binary (plist unchanged)");
+    expect(lc.calls).toEqual([["launchctl", "kickstart", "-k", "gui/501/com.comb.page"]]);
+    // Rewriting it, even with the same bytes, makes BTM re-check the item.
+    expect((await stat(plistPath)).mtimeMs).toBe(mtime);
+  });
+
+  test("when kickstart fails, it reloads instead and says why", async () => {
+    const first = fakeLaunchctl();
+    const { plistPath, opts } = await setup(first);
+    await installPageService(opts);
+
+    const lc = fakeLaunchctl({ kickstartCode: 113 });
+    const line = await installPageService({ ...opts, run: lc.run });
+    expect(line).toContain("reloaded com.comb.page (kickstart failed, exit 113: Could not find service");
+    expect(line).toContain("reloaded instead)");
+    expect(lc.calls).toEqual([["launchctl", "kickstart", "-k", "gui/501/com.comb.page"], ...reload(plistPath)]);
+  });
+
+  test("a changed plist is rewritten and reloaded", async () => {
+    const lc = fakeLaunchctl();
+    const { plistPath, opts } = await setup(lc);
+    await installPageService(opts);
+    lc.calls.length = 0;
+
+    expect(await installPageService({ ...opts, port: 4800 })).toContain("reloaded com.comb.page, serving http://127.0.0.1:4800");
+    expect(await Bun.file(plistPath).text()).toContain("<string>4800</string>");
+    expect(lc.calls).toEqual(reload(plistPath));
+  });
+
+  test("retries a bootstrap that fails once (launchd's exit-5 race)", async () => {
+    const lc = fakeLaunchctl({ bootstrapCodes: [5, 0] });
+    const { plistPath, opts } = await setup(lc);
+    expect(await installPageService(opts)).toContain("installed com.comb.page");
+    expect(lc.calls).toEqual([...reload(plistPath), ["launchctl", "bootstrap", "gui/501", plistPath]]);
+  });
+
+  test("says so when comb is not installed, and fails visibly when launchd refuses twice", async () => {
     const agents = join(dir, "LaunchAgents");
     expect(await installPageService({ home: dir, bin: join(dir, "missing"), launchAgentsDir: agents, run: fakeLaunchctl().run })).toContain("not installed yet");
-    const bin = join(dir, "comb");
-    await writeFile(bin, "");
-    await expect(installPageService({ home: dir, bin, launchAgentsDir: agents, run: fakeLaunchctl(5).run, uid: 501 }))
-      .rejects.toThrow("launchctl bootstrap failed");
+    const lc = fakeLaunchctl({ bootstrapCodes: [5, 5] });
+    const { opts } = await setup(lc);
+    await expect(installPageService(opts)).rejects.toThrow("launchctl bootstrap failed (exit 5) twice: Bootstrap failed: 5");
+  });
+
+  test("when kickstart and both bootstraps fail, the error carries the kickstart failure too", async () => {
+    const { opts } = await setup(fakeLaunchctl());
+    await installPageService(opts);
+    const lc = fakeLaunchctl({ kickstartCode: 113, bootstrapCodes: [5, 5] });
+    await expect(installPageService({ ...opts, run: lc.run })).rejects.toThrow(/twice: .*kickstart failed, exit 113/);
   });
 
   test("escapes paths in the plist", () => {

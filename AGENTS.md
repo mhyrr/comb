@@ -80,5 +80,6 @@ type; do not add `any` or `@ts-ignore`.
 
 `bun run build`, then rm and cp `comb-bin` to `~/.local/bin/comb` and
 `comb-mcp` to `~/.local/bin/comb-mcp`. On macOS, never copy over an existing
-binary in place (rm first). Then run `comb init`: it reloads the
-`com.comb.page` launch agent so the page runs the new binary.
+binary in place (rm first). Then run `comb init`: it restarts the
+`com.comb.page` launch agent (`kickstart -k`) so the page runs the new
+binary, and rewrites and reloads the plist only when the plist changed (D29).
