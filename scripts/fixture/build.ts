@@ -382,11 +382,16 @@ put(join(HOME, "hive-fixture.json"), JSON.stringify({
   }));
   utimesSync(gemini, geminiDay, geminiDay);
   put(join(HOME, ".cursor", "argv.json"), "{}\n");
-  // Plan limits, as Vibe Island's status line writes Claude Code's rate_limits (src/limits.ts).
-  put(join(HOME, ".vibe-island", "cache", "rl.json"), JSON.stringify({
-    five_hour: { used_percentage: 38, resets_at: Math.floor(now / 1000) + 3 * 3600 + 20 * 60 },
-    seven_day: { used_percentage: 61, resets_at: Math.floor(now / 1000) + 4 * 86400 + 2 * 3600 },
+  // Plan limits, as comb's status-line tee saves Claude Code's rate_limits (src/statusline.ts),
+  // with the tee installed in the fixture's Claude settings so the page shows no warning.
+  put(join(COMB, "cache", "rate-limits.json"), JSON.stringify({
+    at: ago(2),
+    rate_limits: {
+      five_hour: { used_percentage: 38, resets_at: Math.floor(now / 1000) + 3 * 3600 + 20 * 60 },
+      seven_day: { used_percentage: 61, resets_at: Math.floor(now / 1000) + 4 * 86400 + 2 * 3600 },
+    },
   }) + "\n");
+  put(join(HOME, ".claude", "settings.json"), JSON.stringify({ statusLine: { type: "command", command: "comb statusline" } }, null, 2) + "\n");
 }
 
 console.log(`fixture built at ${out}\n  HOME=${HOME}`);

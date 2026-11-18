@@ -34,6 +34,8 @@ Object.assign(env, {
   HOME: home,
   COMB_HOME: join(home, ".comb"),
   HIVE_HOME: join(home, ".hive"),
+  // The page reads Claude's settings.json to see whether comb's status line is in (D28); keep it the fixture's.
+  CLAUDE_CONFIG_DIR: join(home, ".claude"),
   COMB_CLAUDE_BIN: fakeClaude,
   COMB_HIVE_MCP: `${process.execPath} ${join(here, "fake-hive-mcp.ts")}`,
   COMB_REX_BIN: "/nonexistent",

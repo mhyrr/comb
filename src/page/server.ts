@@ -59,8 +59,8 @@ export type PageOpts = {
   nightlyMs?: number;
   /** Where the usage panel reads each harness's files. The real home's when omitted. */
   usageRoots?: Roots;
-  /** The plan-limits file (src/limits.ts). Vibe Island's rl.json under the real home when omitted. */
-  limitsPath?: string;
+  /** Claude Code's settings.json, read only, to warn when comb's status-line tee is gone (D28). The real one when omitted. */
+  claudeSettingsPath?: string;
   /** The gh CLI; null means gh is not installed. Found when omitted. */
   ghBin?: string | null;
   /** How old the open-PR cache may get before a read refreshes it. */
@@ -426,7 +426,7 @@ export function startPage(opts: PageOpts = {}) {
         // Nothing read yet: give the first read a moment before saying so.
         if (!usage.ready && usageRun) await Promise.race([usageRun, Bun.sleep(1500)]);
         // Plan limits are one small file, read fresh each time, and shown even while tokens are still being read.
-        const limits = await readLimits(opts.limitsPath);
+        const limits = await readLimits({ home, settingsPath: opts.claudeSettingsPath });
         return json(usage.ready ? { ...usage.summary(), limits, error: usageError } : { ready: false, limits, error: usageError });
       }),
       // Bot PRs reach the page only with pullsShowBots on; read per request, so a config edit needs no restart.
