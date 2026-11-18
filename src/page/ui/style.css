@@ -479,6 +479,7 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 .pr-tip .tip-line .pr-ci { align-self: center; }
 .pr-tip .tip-line b { font-weight: 600; color: var(--ink); }
 .pr-tip .tip-line.tone-bad b { color: var(--danger); }
+.pr-tip .tip-sum { color: var(--ink); margin: 2px 0; }
 .pr-tip .tip-faint { color: var(--graphite); }
 .pr-tip code { font-size: 12px; overflow-wrap: anywhere; }
 
@@ -747,6 +748,8 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 .tc.p3 { fill: color-mix(in srgb, var(--ink) 19%, var(--pane)); }
 svg.comb { display: block; max-width: 100%; height: auto; overflow: visible; }
 svg.comb polygon { cursor: pointer; transform-box: fill-box; transform-origin: center; }
+svg.comb polygon:focus { outline: none; }
+svg.comb polygon:focus-visible { transform: scale(1.35); stroke: var(--ink); stroke-width: 1.5; filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.25)); }
 svg.comb polygon:hover { transform: scale(1.35); filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.25)); }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 18px; font-size: var(--t-sm); color: var(--graphite); }
 .legend span { display: inline-flex; align-items: center; gap: 7px; }
