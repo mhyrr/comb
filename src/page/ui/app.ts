@@ -14,7 +14,7 @@ import { refreshPulls } from "./pulls";
 import { registerCard } from "./card";
 import { nextCell } from "./roving";
 import { parseTicketText, ticketSummary } from "./ticket-text";
-import { Outbox, sendStatus, type Outgoing } from "./outbox";
+import { BoxWatch, Outbox, sendStatus, type Outgoing } from "./outbox";
 import { usageHtml, wireUsage, type UsagePayload } from "./usage";
 import { modelLabel, MODELS, picksModel } from "../../models";
 
@@ -296,11 +296,10 @@ function composer(to: string): HTMLElement {
     btn.disabled = !ta.value.trim() && !shots.length || sending();
   };
   const composed = () => [ta.value.trim(), ...shots.map((s) => `[Screenshot: ${s.path}]`)].filter(Boolean).join("\n\n");
+  /** This box's own messages (outbox.ts, BoxWatch). */
+  const watch = new BoxWatch(outbox, to);
   /** The box holds a message already on its way: Enter again would send it twice. */
-  const sending = () => {
-    const box = norm(composed());
-    return !!box && outbox.for(to).some((o) => o.state === "sending" && norm(o.text) === box);
-  };
+  const sending = () => watch.inFlight(composed());
   shotsEl.addEventListener("click", (e) => {
     const i = (e.target as HTMLElement).closest<HTMLElement>("[data-drop]")?.dataset.drop;
     if (i !== undefined) { shots.splice(Number(i), 1); drawShots(); }
@@ -325,7 +324,7 @@ function composer(to: string): HTMLElement {
   const form = wrap.querySelector("form")!;
   const ta = wrap.querySelector("textarea")!;
   const btn = wrap.querySelector("button")!;
-  const hint = wrap.querySelector(".hint")!;
+  const hint = wrap.querySelector<HTMLElement>(".hint")!;
   const size = () => {
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
@@ -348,32 +347,26 @@ function composer(to: string): HTMLElement {
   // The box keeps its text until the server takes the message, so a failed
   // send loses nothing. The message itself shows in the transcript at once
   // (outbox). Once a message sent from this box is accepted, by Enter or by
-  // Retry, the box clears if it still holds that message.
-  const fromBox = new Set<string>();
+  // Retry, the box clears if it still holds that message. The watch decides
+  // from this box's own messages: the transcript may have settled one out of
+  // the outbox before the server answered.
   const off = outbox.subscribe(() => {
     if (!wrap.isConnected) { off(); return; }
-    const mine = outbox.for(to);
-    const ids = new Set(mine.map((o) => o.id));
-    for (const id of fromBox) if (!ids.has(id)) fromBox.delete(id);
-    for (const o of mine) {
-      if (!fromBox.has(o.id) || o.state !== "sent") continue;
-      fromBox.delete(o.id);
-      if (norm(composed()) === norm(o.text)) {
-        ta.value = "";
-        shots.length = 0;
-        drawShots();
-        size();
-      }
+    const after = watch.check(composed());
+    if (after.clear) {
+      ta.value = "";
+      shots.length = 0;
+      drawShots();
     }
     size();
-    const failed = mine.filter((o) => fromBox.has(o.id) && o.state === "failed");
-    if (failed.length) {
-      const kept = failed.some((o) => norm(o.text) === norm(composed()));
+    if (after.failed.length) {
       hint.className = "hint err";
-      hint.textContent = kept
+      hint.dataset.sendErr = "1";
+      hint.textContent = after.failedHere
         ? "Not sent. Your message is still here: press Enter, or Retry above, to send it again."
         : "A message did not send. Retry it above.";
-    } else if (hint.classList.contains("err") && hint.textContent?.startsWith("Not sent")) {
+    } else if (hint.dataset.sendErr) {
+      delete hint.dataset.sendErr;
       hint.className = "hint";
       hint.textContent = "";
     }
@@ -384,8 +377,8 @@ function composer(to: string): HTMLElement {
     if (!text || sending()) return;
     hint.className = "hint";
     hint.textContent = "";
-    const { item } = outbox.send(to, text);
-    fromBox.add(item.id);
+    delete hint.dataset.sendErr;
+    watch.send(text);
   });
   return wrap;
 }
