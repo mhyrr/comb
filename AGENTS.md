@@ -16,6 +16,10 @@ comb is the work layer: Claude Code background agents, best with hive
   that touches hive.
 - **Never change global Claude config.** comb-mcp reaches agents through
   per-agent `--mcp-config`; skills will arrive per session (design §5.3).
+  The one exception is the status-line tee (D28): `statusLine.command` in
+  `~/.claude/settings.json`, only on the user's yes (`comb init` asks;
+  `--install-statusline`), backed up first, undone by `--undo-statusline`.
+  Tests install it into a fake HOME, never the real one.
 - **Subscription auth only.** Agent starts remove `ANTHROPIC_API_KEY`. If
   OAuth fails, the start fails visibly.
 - **Opinions about how work is done live in files** (charters, skills,
@@ -36,9 +40,11 @@ comb is the work layer: Claude Code background agents, best with hive
 - `src/hive.ts`: the hive interface, including the read-only hive MCP client
   the page uses for tickets and memory.
 - `src/transcript.ts`: reads Claude Code transcripts into feed events.
-- `src/limits.ts`: the plan-limit bars (session and weekly), read only from
-  Vibe Island's copy of Claude Code's statusLine `rate_limits`. The one module
-  that knows that source.
+- `src/statusline.ts`: the status-line tee (D28): `comb statusline` saves
+  Claude Code's `rate_limits` to `~/.comb/cache/rate-limits.json`, then runs
+  the old status line; install and undo for `comb init`.
+- `src/limits.ts`: the plan-limit bars (session and weekly), read from that
+  cache, with a warning when settings.json no longer runs the tee.
 - `src/usage.ts`: token counts from Claude Code, Codex and Gemini CLI's local
   files for the Now tab's usage panel, with a per-file cache in
   `~/.comb/cache/usage.json`. `src/pricing.ts` is its one price table

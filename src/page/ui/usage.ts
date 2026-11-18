@@ -36,10 +36,11 @@ export function limitsHtml(l: Limits | undefined, now = Date.now()): string {
       <div class="u-meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}" aria-label="${esc(w.label)}"><span style="width:${pct}%"></span></div>
       <div class="u-lsub">${esc(under)}</div></div>`;
   };
-  const asOf = `As of ${resetTime(l.asOf, now)}${l.stale ? ". It updates when a Claude session replies" : ""}, from Vibe Island's status line.`;
+  const asOf = `As of ${resetTime(l.asOf, now)}${l.stale ? ". It updates when a Claude session replies" : ""}.`;
   return `<div class="u-limits">${l.windows.map(bar).join("")}
     <p class="u-lnote">Fable weekly: only in <code>/usage</code></p>
-    <p class="u-lnote${l.stale ? " stale" : ""}">${esc(asOf)}</p></div>`;
+    <p class="u-lnote${l.stale ? " stale" : ""}">${esc(asOf)}</p>
+    ${l.warning ? `<p class="u-lnote stale u-lwarn">${esc(l.warning)}</p>` : ""}</div>`;
 }
 
 /** 1,284 / 12.9K / 4.72B: compact past 10,000. */

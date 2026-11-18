@@ -338,17 +338,18 @@ dashboard as too busy, too long, and read-only.
   weekly bars from Claude Code's `/usage`. Claude Code hands them to the
   statusLine command as `rate_limits.five_hour` and `rate_limits.seven_day`
   (`used_percentage`, `resets_at`); this is the only documented,
-  credential-free source. comb does not own the status line: Greg's is Vibe
-  Island's, which writes that object as-is to `~/.vibe-island/cache/rl.json`,
-  and comb reads that file read-only. comb does not edit the statusLine
-  script (it runs in every Claude session) and touches no credentials or
-  endpoints. The file changes only when an interactive session renders its
-  status line, so the panel shows "as of" its mtime, marks it stale after 30
-  minutes, and drops a window's percentage once its `resets_at` has passed.
-  A missing file says where the bars come from. The per-model weekly bar
-  (Fable) is not in `rate_limits`, so the panel says it is only in `/usage`.
-  Reading Vibe Island's cached plan-usage response for it is Greg's
-  decision, pending.
+  credential-free source. comb gets it through its own status-line tee
+  (D28): `comb statusline` saves the object to
+  `~/.comb/cache/rate-limits.json` with the time it saw it, and `src/limits.ts`
+  reads that file. comb touches no credentials and calls no endpoint. The
+  file changes only when a session renders its status line, so the panel
+  shows "as of" that time, marks it stale after 30 minutes, and drops a
+  window's percentage once its `resets_at` has passed. With no reading it
+  says how to install the tee; when settings.json no longer runs the tee it
+  keeps the last bars and warns that they stop updating. The per-model weekly
+  bar (Fable) is not in `rate_limits`, so the panel says it is only in
+  `/usage`. The first cut read Vibe Island's copy of the same object; Greg
+  removed that ("I don't want vibe island to be a dependency in this").
 - Layout of Now's grid. Tickets, usage and reports are grid items placed by
   area. With the stage at least 1440px wide (a 2120px window with Maya open,
   1730px without), Now has three columns: queue | tickets, then reports |
@@ -665,6 +666,28 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   costs the agent its conversation. agent_start refuses a fresh start of the
   calling agent itself, because the stop would end the call; Greg runs
   `comb start <name> --fresh` for that.
+- **D28. comb's status-line tee is the one change to global Claude config**
+  (2026-11-17, §9.1). Greg wants his plan limits on the page ("I care most
+  about my limits") and no third-party app in the path. Claude Code hands
+  them only to the statusLine command, so comb wraps the status line:
+  `statusLine.command` in `~/.claude/settings.json` becomes `comb statusline`,
+  which saves `rate_limits` (and nothing else from stdin) to
+  `~/.comb/cache/rate-limits.json`, then runs the old command under `/bin/sh`
+  with the same stdin and env and passes its stdout, stderr and exit code
+  through. The reading is saved before the old command starts, so a slow or
+  killed status line never loses it. An old command that no longer exists
+  shows nothing and is logged once an hour; with none, the tee prints
+  nothing. `COMB_STATUSLINE=1` in the wrapped command's env stops a loop.
+  Only on the user's yes: `comb init` asks in a terminal and otherwise only
+  says how; `--install-statusline` is the yes, `--undo-statusline` restores
+  the old `statusLine` object (kept in `~/.comb/statusline.json`) and
+  refuses if someone has changed it since. Only the command changes; other
+  keys (`padding`, `refreshInterval`) stay, and settings.json is backed up to
+  `~/.comb/backups/` before every write. The page reads settings.json to warn
+  when the tee is gone (another tool may rewrite the status line). Cost,
+  measured over 50 runs against a no-op old command: 34 ms at p50 and 55 ms
+  at p95 over running the old command alone, all of it comb's startup. The
+  rule "never change global Claude config" keeps holding for everything else.
 
 ## 11. Open questions
 

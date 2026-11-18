@@ -2,25 +2,18 @@
  * Plan limits for the usage panel: the session (5-hour) and weekly bars that
  * Claude Code's `/usage` screen shows.
  *
- * Source: Claude Code hands `rate_limits` to the statusLine command on every
- * assistant message (code.claude.com/docs/en/statusline: `five_hour` and
- * `seven_day`, each with `used_percentage` 0–100 and `resets_at` in Unix
- * seconds). comb does not own the status line. Greg's is Vibe Island's, which
- * writes that object as-is to ~/.vibe-island/cache/rl.json, and comb reads
- * that file and nothing else: no credentials, no network. The file changes
- * only when an interactive session renders its status line, so every reading
- * carries the file's mtime ("as of").
+ * Source: comb's own status-line tee (src/statusline.ts, D28). Claude Code
+ * hands `rate_limits` to the statusLine command on every assistant message
+ * (`five_hour` and `seven_day`, each with `used_percentage` 0–100 and
+ * `resets_at` in Unix seconds); `comb statusline` saves them to
+ * ~/.comb/cache/rate-limits.json with the time it saw them. This module reads
+ * that file and whether the tee is still installed, and nothing else.
  *
  * The per-model weekly bar (Fable) is not in `rate_limits`; /usage alone shows it.
- *
- * This module is the only place that knows the source. Swapping it later
- * changes this file and nothing else.
  */
-import { readFile, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 
-export const defaultLimitsPath = (home = homedir()) => join(home, ".vibe-island", "cache", "rl.json");
+import { claudeSettingsPath, rateLimitsPath, statusLineStatus, type StatusLineStatus } from "./statusline";
 
 /** A reading older than this is marked stale on the panel. */
 export const STALE_MS = 30 * 60_000;
@@ -37,28 +30,38 @@ export type LimitWindow = {
 };
 
 export type Limits =
-  | { status: "ok"; source: string; asOf: string; stale: boolean; windows: LimitWindow[] }
-  | { status: "missing" | "unreadable"; source: string; message: string };
+  | { status: "ok"; asOf: string; stale: boolean; windows: LimitWindow[]; warning: string | null }
+  | { status: "missing" | "unreadable"; message: string };
 
 const LABELS: Record<LimitWindow["id"], string> = { five_hour: "Current session", seven_day: "Current week (all models)" };
+const INSTALL = "comb init --install-statusline";
 
-/** Reads the limits file. Never throws: a missing or broken file is a status the panel shows. */
-export async function readLimits(path = defaultLimitsPath(), now = Date.now()): Promise<Limits> {
+const notInstalled = (s: StatusLineStatus) =>
+  `comb's status line is not installed${s.command ? ` (settings.json runs "${s.command}")` : ""}, so these bars stop updating. Install: ${INSTALL}`;
+
+/** Reads comb's rate-limits cache. Never throws: a missing or broken file is a status the panel shows. */
+export async function readLimits(opts: { home: string; settingsPath?: string; now?: number }): Promise<Limits> {
+  const now = opts.now ?? Date.now();
+  const install = await statusLineStatus(opts.settingsPath ?? claudeSettingsPath(), opts.home);
   let text: string;
-  let mtime: number;
   try {
-    mtime = (await stat(path)).mtimeMs;
-    text = await readFile(path, "utf-8");
+    text = await readFile(rateLimitsPath(opts.home), "utf-8");
   } catch {
-    return { status: "missing", source: path, message: "Session limits come from Vibe Island's status line; not found." };
+    return {
+      status: "missing",
+      message: install.installed
+        ? "Waiting for the first reading: it comes with the next Claude reply."
+        : `Plan limits come from comb's status line, which is not installed. Install: ${INSTALL}`,
+    };
   }
-  let o: any;
+  let o: { at?: unknown; rate_limits?: Record<string, { used_percentage?: unknown; resets_at?: unknown } | undefined> };
   try { o = JSON.parse(text); } catch {
-    return { status: "unreadable", source: path, message: "Vibe Island's limits file is not JSON; it may be mid-write. Trying again shortly." };
+    return { status: "unreadable", message: "comb's rate-limits file is not JSON. The next Claude reply rewrites it." };
   }
+  const at = typeof o.at === "string" ? Date.parse(o.at) : NaN;
   const windows: LimitWindow[] = [];
   for (const id of ["five_hour", "seven_day"] as const) {
-    const w = o?.[id];
+    const w = o.rate_limits?.[id];
     if (!w || typeof w.used_percentage !== "number") continue;
     const resetMs = typeof w.resets_at === "number" ? w.resets_at * 1000 : NaN;
     const reset = Number.isFinite(resetMs) && resetMs <= now;
@@ -70,8 +73,14 @@ export async function readLimits(path = defaultLimitsPath(), now = Date.now()): 
       reset,
     });
   }
-  if (!windows.length) {
-    return { status: "unreadable", source: path, message: "Vibe Island's limits file has no session or weekly window." };
+  if (!windows.length || !Number.isFinite(at)) {
+    return { status: "unreadable", message: "comb's rate-limits file has no session or weekly window." };
   }
-  return { status: "ok", source: path, asOf: new Date(mtime).toISOString(), stale: now - mtime > STALE_MS, windows };
+  return {
+    status: "ok",
+    asOf: new Date(at).toISOString(),
+    stale: now - at > STALE_MS,
+    windows,
+    warning: install.installed ? null : notInstalled(install),
+  };
 }

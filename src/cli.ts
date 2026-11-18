@@ -13,13 +13,20 @@ import { formatNightly, NIGHTLY_EVERY_MS, runNightly } from "./nightly";
 import { startPage } from "./page/server";
 import { installPageService, PAGE_PORT } from "./page/service";
 import { resolveCombHome } from "./paths";
+import { claudeSettingsPath, installStatusLine, runTee, statusLineStatus, undoStatusLine } from "./statusline";
 
 const usage = `comb: Claude Code background agents with one job each, a live page and a queue.
 Best with hive (${HIVE_URL}) for identity, memory, tickets and nightly picks.
 
 Usage:
   comb init                      Create ~/.comb and Maya's workspace; link comb-handoff;
-                                 install (or reload) the service that keeps the page up
+                                 install (or reload) the service that keeps the page up;
+                                 offer the status-line tee that feeds the page's limit bars
+  comb init --install-statusline Install the tee without asking: statusLine.command in
+                                 ~/.claude/settings.json becomes \`comb statusline\`
+  comb init --undo-statusline    Put back the status line the tee replaced
+  comb statusline                What Claude Code's status line runs once the tee is in:
+                                 saves rate_limits to ~/.comb/cache, then runs the old command
   comb start <name> --charter "<text>" [--cwd DIR] [--worktree] [--model M] [--prompt "<text>"]
   comb start <name> --charter-file PATH [...]
   comb start <name> [--fresh]    Restart an agent from its workspace; --fresh starts a new
@@ -43,9 +50,27 @@ async function main(args: string[]): Promise<void> {
     console.log(usage);
     return;
   }
+  if (cmd === "statusline") {
+    // Claude Code's statusLine command (D28). Kept lean: it runs on every assistant message.
+    const result = await runTee(new Uint8Array(await Bun.stdin.arrayBuffer()), { home: resolveCombHome() });
+    if (result.stdout.length) process.stdout.write(result.stdout);
+    if (result.stderr.length) process.stderr.write(result.stderr);
+    process.exitCode = result.code;
+    return;
+  }
   if (cmd === "init") {
+    const install = rest.includes("--install-statusline");
+    const undo = rest.includes("--undo-statusline");
+    const unknown = rest.find((a) => a !== "--install-statusline" && a !== "--undo-statusline");
+    if (unknown || (install && undo)) throw new UsageError(`${unknown ? `Unknown flag: ${unknown}` : "Pick one of --install-statusline and --undo-statusline."}\n\n${usage}`);
+    const home = resolveCombHome();
+    if (undo) {
+      console.log((await undoStatusLine({ home })).message);
+      return;
+    }
     for (const line of (await combInit()).lines) console.log(line);
-    console.log(await installPageService({ home: resolveCombHome() }));
+    console.log(await installPageService({ home }));
+    console.log(await offerStatusLine(home, install));
     return;
   }
   if (cmd === "list") {
@@ -100,6 +125,22 @@ async function main(args: string[]): Promise<void> {
     return;
   }
   throw new UsageError(`Unknown command: ${cmd}\n\n${usage}`);
+}
+
+/**
+ * The status-line tee is never installed silently: --install-statusline is the
+ * yes, a terminal is asked, and anything else only hears how to install it.
+ */
+async function offerStatusLine(home: string, yes: boolean): Promise<string> {
+  const status = await statusLineStatus(claudeSettingsPath(), home);
+  if (status.installed) return `statusline: comb's tee is installed (${status.command}). Undo: comb init --undo-statusline`;
+  const what = `comb can show your plan limits (session and weekly) on its page. To get them, it runs your status line through \`comb statusline\`, which saves the limits and then runs ${status.command ? `your current status line ("${status.command}")` : "nothing else (you have no status line)"}. This changes statusLine.command in ${claudeSettingsPath()}; the old value is kept, and comb init --undo-statusline restores it.`;
+  if (!yes) {
+    if (!process.stdin.isTTY) return `statusline: not installed. ${what} Install: comb init --install-statusline`;
+    const answer = prompt(`\n${what}\nInstall it? [y/N]`);
+    if (!/^y(es)?$/i.test(answer?.trim() ?? "")) return "statusline: not installed. Install later with: comb init --install-statusline";
+  }
+  return (await installStatusLine({ home })).message;
 }
 
 /** Whether comb's page already answers at `url`. */
