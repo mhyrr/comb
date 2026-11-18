@@ -22,6 +22,8 @@ export type ServiceOpts = {
   port?: number;
   run?: Run;
   uid?: number;
+  /** Wait before the one bootstrap retry. Tests pass 0. */
+  retryDelayMs?: number;
 };
 
 const xml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -30,6 +32,12 @@ const xml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
  * The launchd agent. launchd starts with a bare PATH, and the page shells out
  * to `claude` (state, relay) and to the hive MCP server's command (`bun`), so
  * the PATH names where those live.
+ *
+ * The program is /bin/sh, which execs comb (TK-006). macOS's Background Task
+ * Management keys a login item on its program's code requirement. comb's is
+ * ad-hoc, so the requirement is the cdhash, and every build is new code: each
+ * install showed "comb can run in the background". /bin/sh is Apple-signed
+ * and never changes, so rebuilding comb is not a new login item.
  */
 export function pagePlist(o: { bin: string; home: string; port: number; userHome: string }): string {
   const path = [`${o.userHome}/.local/bin`, `${o.userHome}/.bun/bin`, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"].join(":");
@@ -42,6 +50,9 @@ export function pagePlist(o: { bin: string; home: string; port: number; userHome
     <string>${PAGE_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>exec "$0" "$@"</string>
         <string>${xml(o.bin)}</string>
         <string>page</string>
         <string>--serve</string>
@@ -73,8 +84,15 @@ export function pagePlist(o: { bin: string; home: string; port: number; userHome
 }
 
 /**
- * Writes the agent and (re)loads it, so a rebuilt binary takes over. Returns
- * one line for `comb init` to print.
+ * Puts the page service on the installed binary. Returns one line for
+ * `comb init` to print.
+ *
+ * When the plist on disk is already right, the file is left alone and the
+ * running service is restarted in place (`kickstart -k`). Rewriting the plist,
+ * even with the same bytes, makes launchd rescan LaunchAgents and BTM re-check
+ * the item. A full bootout and bootstrap also races (exit 5). If kickstart
+ * fails (the service is not loaded, say), it falls back to the full reload and
+ * says so. The bootstrap is retried once, because that race usually clears.
  */
 export async function installPageService(o: ServiceOpts): Promise<string> {
   const userHome = process.env.HOME || homedir();
@@ -92,17 +110,32 @@ export async function installPageService(o: ServiceOpts): Promise<string> {
   const plistPath = join(dir, `${PAGE_LABEL}.plist`);
   const plist = pagePlist({ bin, home: o.home, port, userHome });
   const before = existsSync(plistPath) ? await readFile(plistPath, "utf-8") : null;
-  await writeFile(plistPath, plist, "utf-8");
 
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+  const launchctl = (...args: string[]) => run(["launchctl", ...args], { cwd: o.home, env });
   const domain = `gui/${uid}`;
+  const serving = `serving http://127.0.0.1:${port} (log: ${join(o.home, "logs", "page.log")})`;
+
+  let note = "";
+  if (before === plist) {
+    const kick = await launchctl("kickstart", "-k", `${domain}/${PAGE_LABEL}`);
+    if (kick.code === 0) return `page: restarted ${PAGE_LABEL} on the installed binary (plist unchanged), ${serving}`;
+    note = ` (kickstart failed, exit ${kick.code}: ${(kick.stderr || kick.stdout).trim() || "no output"}; reloaded instead)`;
+  } else {
+    await writeFile(plistPath, plist, "utf-8");
+  }
+
   // bootout fails when it was not loaded; that is the normal first time.
-  await run(["launchctl", "bootout", `${domain}/${PAGE_LABEL}`], { cwd: o.home, env });
-  const res = await run(["launchctl", "bootstrap", domain, plistPath], { cwd: o.home, env });
+  await launchctl("bootout", `${domain}/${PAGE_LABEL}`);
+  let res = await launchctl("bootstrap", domain, plistPath);
   if (res.code !== 0) {
-    throw new Error(`launchctl bootstrap failed (exit ${res.code}): ${(res.stderr || res.stdout).trim()}`);
+    await Bun.sleep(o.retryDelayMs ?? 1000);
+    res = await launchctl("bootstrap", domain, plistPath);
+  }
+  if (res.code !== 0) {
+    throw new Error(`launchctl bootstrap failed (exit ${res.code}) twice: ${(res.stderr || res.stdout).trim()}${note}`);
   }
   const verb = before === null ? "installed" : "reloaded";
-  return `page: ${verb} ${PAGE_LABEL}, serving http://127.0.0.1:${port} (log: ${join(o.home, "logs", "page.log")})`;
+  return `page: ${verb} ${PAGE_LABEL}${note}, ${serving}`;
 }
