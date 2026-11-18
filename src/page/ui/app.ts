@@ -11,6 +11,8 @@ import { esc, md as markdown } from "./md";
 import { admit, holdingPlace, patchList, setHtml } from "./patch";
 import { treeOrder } from "./tree";
 import { refreshPulls } from "./pulls";
+import { registerCard } from "./card";
+import { parseTicketText, ticketSummary } from "./ticket-text";
 import { Outbox, sendStatus, type Outgoing } from "./outbox";
 import { usageHtml, wireUsage, type UsagePayload } from "./usage";
 import { modelLabel, MODELS, picksModel } from "../../models";
@@ -1285,7 +1287,7 @@ function comb(tickets: Ticket[], cols: number, r: number): string {
       const rad = (a * Math.PI) / 180;
       return `${(cx + k * Math.cos(rad)).toFixed(1)},${(cy + k * Math.sin(rad)).toFixed(1)}`;
     }).join(" ");
-    return `<polygon class="tc ${tclass(t)}" points="${pts}" data-project="${esc(t.project)}" data-id="${esc(t.id)}"><title>${esc(`${t.id}  ${t.title}`)}</title></polygon>`;
+    return `<polygon class="tc ${tclass(t)}" points="${pts}" tabindex="0" role="button" aria-label="${esc(`${t.id} ${t.title}`)}" data-project="${esc(t.project)}" data-id="${esc(t.id)}"></polygon>`;
   });
   return `<svg class="comb" viewBox="0 0 ${W.toFixed(1)} ${H.toFixed(1)}" width="${W.toFixed(0)}" height="${H.toFixed(0)}" role="img" aria-label="${tickets.length} tickets">${cells.join("")}</svg>`;
 }
@@ -1386,17 +1388,64 @@ stage.addEventListener("click", (e) => {
   }
 });
 
+// The hover card on a hex (and on a ticket row): title, state in words, a short summary read lazily.
+const STATE_NAME = { in_progress: "In progress", open: "Open", closed: "Closed" } as const;
+const summaries = new Map<string, { summary: string; updated: string }>();
+const reading = new Map<string, Promise<void>>();
+const tkey = (project: string, id: string) => `${project}:${id}`;
+
+function ticketCard(t: Ticket, sum: { summary: string; updated: string } | "reading" | "none"): string {
+  const prio = t.status === "in_progress" ? "" : ` · ${PRIORITY_NAME[Math.min(t.priority, 3)] ?? "Unprioritized"} priority`;
+  const text = sum === "reading" ? `<span class="tip-line tip-faint"><span>Reading summary…</span></span>`
+    : sum === "none" || !sum.summary ? `<span class="tip-line tip-faint"><span>No summary</span></span>`
+    : `<span class="tip-line tip-sum"><span>${esc(sum.summary)}</span></span>`;
+  const updated = typeof sum === "object" && sum.updated ? ` · updated ${esc(agoLong(sum.updated))}` : "";
+  return `<span class="tip-title"><span class="mono">${esc(t.id)}</span> ${esc(t.title)}</span>
+    <span class="tip-line"><svg class="pr-ci" viewBox="0 0 22 24" aria-hidden="true"><path class="tc ${tclass(t)}" d="${HEX}"/></svg><span><b>${STATE_NAME[t.status]}</b>${prio}</span></span>
+    <span class="tip-line"><span>${esc(t.type)} · ${esc(t.project)}${updated}</span></span>${text}
+    ${t.blockedBy.length ? `<span class="tip-line tone-bad"><span><b>Blocked by ${esc(t.blockedBy.join(", "))}</b></span></span>` : ""}
+    ${t.tags.length ? `<span class="tip-line tip-faint"><span>${esc(t.tags.join(" · "))}</span></span>` : ""}`;
+}
+
+/** One show_ticket read per ticket, kept for the session. A failed read is tried again on the next hover. */
+function readSummary(t: Ticket): Promise<void> {
+  const k = tkey(t.project, t.id);
+  let p = reading.get(k);
+  if (!p) {
+    p = getJSON<{ text: string }>(`/api/ticket?project=${encodeURIComponent(t.project)}&id=${encodeURIComponent(t.id)}`)
+      .then(({ text }) => {
+        const { fields, body } = parseTicketText(text);
+        summaries.set(k, { summary: ticketSummary(body), updated: fields.get("updated") ?? "" });
+      })
+      .finally(() => reading.delete(k));
+    reading.set(k, p);
+  }
+  return p;
+}
+
+registerCard({
+  selector: "svg.comb polygon[data-id], .trow, .pt-main",
+  skipTouch: true,
+  render(el, update) {
+    const t = ticketData?.tickets.find((x) => x.project === (el as HTMLElement).dataset.project && x.id === (el as HTMLElement).dataset.id);
+    if (!t) return null;
+    const have = summaries.get(tkey(t.project, t.id));
+    if (have) return ticketCard(t, have);
+    void readSummary(t).then(() => update(ticketCard(t, summaries.get(tkey(t.project, t.id)) ?? "none")), () => update(ticketCard(t, "none")));
+    return ticketCard(t, "reading");
+  },
+});
+
+stage.addEventListener("keydown", (e) => {
+  const el = e.target;
+  if (route.view !== "tickets" || !(el instanceof SVGElement) || !el.dataset.id || (e.key !== "Enter" && e.key !== " ")) return;
+  e.preventDefault();
+  void openTicket(el.dataset.project!, el.dataset.id);
+});
+
 /** hive's show_ticket text: a "# ID: title" line, bold key lines, then the body after ---. */
 function ticketDoc(text: string): string {
-  const lines = text.split("\n");
-  const title = (lines.find((l) => l.startsWith("# ")) ?? "").replace(/^#\s+[^:]+:\s*/, "");
-  const fields = new Map<string, string>();
-  for (const l of lines) {
-    const m = l.match(/^\*\*([^*]+):\*\*\s*(.*)$/);
-    if (m) fields.set(m[1]!.toLowerCase(), m[2]!);
-  }
-  const cut = text.indexOf("\n---");
-  const body = cut >= 0 ? text.slice(cut + 4) : "";
+  const { title, fields, body } = parseTicketText(text);
   const chip = (k: string, cls = "") => (fields.get(k) ? `<span class="chip ${cls}">${esc(fields.get(k)!.replace(/^P\d-/, "").replace("_", " "))}</span>` : "");
   const ref = fields.get("ref");
   const updated = fields.get("updated");

@@ -9,6 +9,7 @@
  * and a second header row would take space from every view.
  */
 import type { BotGroup, Pull, PullsReport, Readiness } from "../../github";
+import { registerCard } from "./card";
 import { fitCount } from "./fit";
 import { esc } from "./md";
 import { setHtml } from "./patch";
@@ -269,39 +270,11 @@ document.addEventListener("mouseout", (e) => {
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && popEl && !popEl.hidden) { closeList(); popFor?.focus(); } });
 
-// ---------------------------------------------------------------- the shared hover card
+// ---------------------------------------------------------------- the hover card (card.ts draws it)
 
-let tipEl: HTMLElement | null = null;
-function showTip(from: HTMLElement) {
-  const src = from.querySelector<HTMLElement>(":scope > .tip-src");
-  if (!src) return;
-  if (!tipEl) {
-    tipEl = document.createElement("div");
-    tipEl.className = "pr-tip";
-    tipEl.setAttribute("role", "tooltip");
-    document.body.append(tipEl);
-  }
-  tipEl.innerHTML = src.innerHTML;
-  // Measure at the left edge: left where it was, near the right edge, it would shrink to fit.
-  tipEl.style.left = "0px";
-  tipEl.style.top = "0px";
-  tipEl.hidden = false;
-  const at = from.getBoundingClientRect();
-  const w = tipEl.offsetWidth;
-  const h = tipEl.offsetHeight;
-  const below = at.bottom + 6;
-  tipEl.style.left = `${Math.max(8, Math.min(at.left, innerWidth - w - 8))}px`;
-  tipEl.style.top = `${below + h > innerHeight - 8 ? Math.max(8, at.top - h - 6) : below}px`;
-}
-function hideTip() { if (tipEl) tipEl.hidden = true; }
-const tipHost = (t: EventTarget | null) => (t instanceof Element ? t.closest<HTMLElement>(".prb, .pr-help, .bp-note") : null);
-document.addEventListener("mouseover", (e) => { const h = tipHost(e.target); if (h) showTip(h); });
-document.addEventListener("mouseout", (e) => { const h = tipHost(e.target); if (h && !h.contains(e.relatedTarget as Node | null)) hideTip(); });
-document.addEventListener("focusin", (e) => { const h = tipHost(e.target); if (h) showTip(h); else hideTip(); });
-document.addEventListener("focusout", (e) => { if (tipHost(e.target)) hideTip(); });
+registerCard({ selector: ".prb, .pr-help, .bp-note", render: (el) => el.querySelector(":scope > .tip-src")?.innerHTML ?? null });
 // The bar sits above the panes, so only the page itself scrolling (a phone) moves it.
-// A feed or chat scrolling on its own must not shut the card under the pointer.
-document.addEventListener("scroll", (e) => { if (e.target === document) { hideTip(); closeList(); } }, true);
+document.addEventListener("scroll", (e) => { if (e.target === document) closeList(); }, true);
 
 // The bar's width changes with the window, not with the panes: refit on resize.
 let fitFrame = 0;
