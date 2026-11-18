@@ -12,6 +12,7 @@ import { admit, holdingPlace, patchList, setHtml } from "./patch";
 import { treeOrder } from "./tree";
 import { refreshPulls } from "./pulls";
 import { registerCard } from "./card";
+import { nextCell } from "./roving";
 import { parseTicketText, ticketSummary } from "./ticket-text";
 import { Outbox, sendStatus, type Outgoing } from "./outbox";
 import { usageHtml, wireUsage, type UsagePayload } from "./usage";
@@ -1287,9 +1288,9 @@ function comb(tickets: Ticket[], cols: number, r: number): string {
       const rad = (a * Math.PI) / 180;
       return `${(cx + k * Math.cos(rad)).toFixed(1)},${(cy + k * Math.sin(rad)).toFixed(1)}`;
     }).join(" ");
-    return `<polygon class="tc ${tclass(t)}" points="${pts}" tabindex="0" role="button" aria-label="${esc(`${t.id} ${t.title}`)}" data-project="${esc(t.project)}" data-id="${esc(t.id)}"></polygon>`;
+    return `<polygon class="tc ${tclass(t)}" points="${pts}" tabindex="${i === 0 ? 0 : -1}" role="button" aria-label="${esc(`${t.id} ${t.title}`)}" data-project="${esc(t.project)}" data-id="${esc(t.id)}"></polygon>`;
   });
-  return `<svg class="comb" viewBox="0 0 ${W.toFixed(1)} ${H.toFixed(1)}" width="${W.toFixed(0)}" height="${H.toFixed(0)}" role="img" aria-label="${tickets.length} tickets">${cells.join("")}</svg>`;
+  return `<svg class="comb" data-cols="${cols}" viewBox="0 0 ${W.toFixed(1)} ${H.toFixed(1)}" width="${W.toFixed(0)}" height="${H.toFixed(0)}" role="img" aria-label="${tickets.length} tickets">${cells.join("")}</svg>`;
 }
 
 const legend = `<div class="legend">
@@ -1436,11 +1437,23 @@ registerCard({
   },
 });
 
+// One tab stop per grid (the focused hex); arrows move between hexes, Enter or Space opens one.
 stage.addEventListener("keydown", (e) => {
   const el = e.target;
-  if (route.view !== "tickets" || !(el instanceof SVGElement) || !el.dataset.id || (e.key !== "Enter" && e.key !== " ")) return;
+  if (route.view !== "tickets" || !(el instanceof SVGElement) || !el.dataset.id) return;
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openTicket(el.dataset.project!, el.dataset.id); return; }
+  const grid = el.closest<SVGElement>("svg.comb");
+  if (!grid) return;
+  const cells = [...grid.querySelectorAll<SVGElement>("polygon[data-id]")];
+  const to = nextCell(e.key, cells.indexOf(el), cells.length, Number(grid.dataset.cols) || 1);
+  if (to === null) return;
   e.preventDefault();
-  void openTicket(el.dataset.project!, el.dataset.id);
+  cells[to]!.focus();
+});
+stage.addEventListener("focusin", (e) => {
+  const el = e.target;
+  if (!(el instanceof SVGElement) || !el.matches("svg.comb polygon[data-id]")) return;
+  el.closest("svg.comb")!.querySelectorAll("polygon[data-id]").forEach((c) => c.setAttribute("tabindex", c === el ? "0" : "-1"));
 });
 
 /** hive's show_ticket text: a "# ID: title" line, bold key lines, then the body after ---. */
