@@ -351,7 +351,9 @@ export function startPage(opts: PageOpts = {}) {
           // Deliver first: an answer that never reached the agent leaves the item open.
           const message = answerMessage(item, answer, note || null, model);
           const { woke } = await sendToAgent({ name: item.from, message, fromPage: true, home, claudeBin: claude, run });
-          const done = await recordAnswer(item.id, answer, note || null, home, new Date(), model);
+          // With hive, the precedent also goes to hive memory (D13); a failed sync is noted, never fatal.
+          const sink = hiveOn ? { writer: hive, projects: listHiveProjects(setup.home) } : null;
+          const done = await recordAnswer(item.id, answer, note || null, home, new Date(), model, sink);
           void refresh().catch(() => {});
           return json({ item: done, woke });
         }),

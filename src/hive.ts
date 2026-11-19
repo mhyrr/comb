@@ -5,6 +5,8 @@
  *   - identity:  `hive identity emit`, run in the agent's directory
  *   - projects:  the registry files ~/.hive/projects/<name>/config.md
  *   - memory and tickets: the `hive` MCP server every Claude session loads
+ *     (read, plus one write: queue precedents go to write_hive_memory as
+ *     candidates, which hive's nightly verifier admits; D13)
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -271,11 +273,39 @@ export class HiveClient {
     return parseMemory(await this.call("read_hive_memory", { project, include_superseded: false }));
   }
 
+  /**
+   * Queues a memory candidate through hive's own write path (write_hive_memory).
+   * hive's nightly verifier admits it to canon; comb never writes ~/.hive.
+   */
+  writeMemory(c: MemoryCandidate): Promise<string> {
+    return this.call("write_hive_memory", {
+      project: c.project,
+      type: c.type,
+      content: c.content,
+      tags: c.tags,
+      ...(c.provenanceNote ? { provenance_note: c.provenanceNote } : {}),
+      ...(c.directive ? { directive: true } : {}),
+    });
+  }
+
   async close(): Promise<void> {
     try { await this.client?.close(); } catch { /* intentional: already closed */ }
     this.client = null;
   }
 }
+
+/** One write_hive_memory call. `directive` means Greg himself made the call, so the verifier may not reject it. */
+export type MemoryCandidate = {
+  project: string;
+  type: "fact" | "convention" | "decision" | "question";
+  content: string;
+  tags: string[];
+  provenanceNote?: string;
+  directive?: boolean;
+};
+
+/** What comb needs to write hive memory; HiveClient in use, a fake in tests. */
+export type MemoryWriter = { writeMemory(c: MemoryCandidate): Promise<string> };
 
 export type MemorySection = "facts" | "conventions" | "decisions" | "questions";
 export type MemoryEntry = { section: MemorySection; date: string | null; text: string; tags: string[] };

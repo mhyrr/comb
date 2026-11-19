@@ -422,7 +422,8 @@ that fills with honey while it works; that is the page's one ambient motion.
 - **Greg answers with Go, Not now (optional reason) or Redirect (required
   instruction).** The page delivers the answer to the asking agent first and
   marks the item only after delivery, so an undelivered answer stays open.
-  Each answer writes `precedents/<item-id>.md` with his reason (D13).
+  Each answer writes `precedents/<item-id>.md` with his reason, and with
+  hive also queues it in hive memory (D13).
 - **Start on a ticket** sends Maya one signed message: start a task agent
   for it (D21) with the ticket, her context and where the docs and memory
   are, and do not come back to Greg first. Maya routes; the page does not.
@@ -523,7 +524,23 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   `ANTHROPIC_API_KEY`; if OAuth fails, the start fails visibly.
 - **D12. Skills define roles** (2026-11-11), delivered per session (§5.3).
   The work-loop skill comes first.
-- **D13. Precedents live in comb for now.** They are tied to queue answers;
+- **D13. Precedents live in comb, and with hive they also go to hive memory**
+  (2026-11-12, built 2026-11-18, TK-001). The file `precedents/<id>.md` is
+  comb's record. hive's `search_memory` could not see it, so agents re-asked
+  what Greg had answered. Now `recordAnswer` also calls hive's own write
+  path, `write_hive_memory` on the hive MCP (client in `src/hive.ts`; comb
+  still never writes `~/.hive`). Each entry is a `decision` tagged
+  `precedent` and `queue`, scoped to the item's project (comb when hive does
+  not register it), in one sentence a later agent can act on: `Greg declined
+  maya's proposal "…" (instadash TK-009) on 2026-11-18: not now. Proposed: …
+  Reason: …`. It is sent as a directive: the answer is Greg's own call, and
+  a page click leaves no session transcript for the nightly verifier to
+  cite, so a plain candidate would likely be rejected. The verifier still
+  words and places it. The outcome is recorded in comb: a `- Hive memory:`
+  line in the precedent and the item's `hiveSync` field. A failed or
+  timed-out write (20 s) never fails the answer: it is logged, and the page
+  marks the answered row "not in hive memory". `comb precedents sync`
+  backfills and retries every precedent not yet queued, idempotently.
   hive's nightly may later promote lasting ones into taste.
 - **D14. Three places: session, Maya, page** (2026-11-11, §1). Greg
   addresses agents by name from his session; his session offers hand-offs

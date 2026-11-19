@@ -864,7 +864,13 @@ function queueRest(openCount: number, answered: QueueItem[]): string {
   }
   return `${openCount ? "" : `<p class="quiet">All answered.</p>`}
     ${answered.length ? `<ul class="answered">${answered.map((q) =>
-      `<li><span class="v v-${q.status}">${verdict[q.status]}</span><span class="t">${esc(q.title)}</span><span class="w">${esc(who(q.from))} ${agoTag(q.answered, true)}</span></li>`).join("")}</ul>` : ""}`;
+      `<li><span class="v v-${q.status}">${verdict[q.status]}</span><span class="t">${esc(q.title)}</span>${unsynced(q)}<span class="w">${esc(who(q.from))} ${agoTag(q.answered, true)}</span></li>`).join("")}</ul>` : ""}`;
+}
+
+/** An answer whose precedent did not reach hive memory (D13): say so, with why and the retry. */
+function unsynced(q: QueueItem): string {
+  if (!q.hiveSync?.startsWith("not synced")) return "";
+  return `<span class="unsynced" title="${esc(`${q.hiveSync}. Retry: comb precedents sync`)}">not in hive memory</span>`;
 }
 
 function liveItem(n: AgentNode | SessionNode): string {

@@ -11,7 +11,9 @@ comb is the work layer: Claude Code background agents, best with hive
   depend on whether the machine has hive.
 - **Never write `~/.hive`.** comb reads hive only through `hive identity emit`,
   the project registry files, the `hive` MCP server, and hive's nightly
-  outputs (`next.json`, `briefings/`, ticket front matter; design §9.3). All comb state lives
+  outputs (`next.json`, `briefings/`, ticket front matter; design §9.3). Its
+  one write is through hive's own path: queue precedents go to the MCP's
+  `write_hive_memory` as candidates (D13). All comb state lives
   in `~/.comb` (`COMB_HOME` overrides it). `src/hive.ts` is the only module
   that touches hive.
 - **Never change global Claude config.** comb-mcp reaches agents through
@@ -32,13 +34,14 @@ comb is the work layer: Claude Code background agents, best with hive
 - `src/cli.ts`: the `comb` command, including `comb page`.
 - `src/mcp-server.ts`: comb-mcp (`agent_list`, `agent_send`, `agent_start`,
   `queue_add`).
-- `src/queue.ts`: the queue (`~/.comb/queue/`) and precedents.
+- `src/queue.ts`: the queue (`~/.comb/queue/`) and precedents, which it also
+  queues in hive memory (D13; `comb precedents sync` backfills).
 - `src/nightly.ts`: files hive's nightly picks (and asks, with `nightlyAsks`) into the queue
   (`comb nightly`, and hourly from the page server).
 - `src/agents.ts`: workspaces, the start path, the core contract.
 - `src/claude.ts`: the Claude Code adapter (`--bg`, `claude agents --json`).
-- `src/hive.ts`: the hive interface, including the read-only hive MCP client
-  the page uses for tickets and memory.
+- `src/hive.ts`: the hive interface, including the hive MCP client the page
+  uses to read tickets and memory and to queue precedents (`writeMemory`).
 - `src/transcript.ts`: reads Claude Code transcripts into feed events.
 - `src/statusline.ts`: the status-line tee (D28): `comb statusline` saves
   Claude Code's `rate_limits` to `~/.comb/cache/rate-limits.json`, then runs

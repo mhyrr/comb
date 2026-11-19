@@ -56,7 +56,7 @@ test("the list holds open items first, then recent answers; stale answers drop o
 });
 
 test("the answer message tells the agent exactly what to do", () => {
-  const item = { ...base, id: "x", kind: "proposal" as const, model: null, modelWhy: null, status: "open" as const, created: "", answered: null, note: null, body: "" };
+  const item = { ...base, id: "x", kind: "proposal" as const, model: null, modelWhy: null, status: "open" as const, created: "", answered: null, note: null, hiveSync: null, body: "" };
   expect(answerMessage(item, "go", null)).toBe('Greg approved your proposal "Start a acme-api agent on TK-143" (queue item x). Go: Start acme-api on TK-143 and triage the 22 Sobelow findings.');
   expect(answerMessage(item, "no", "later")).toContain("Do not do it.\n\nHis reason: later");
   expect(answerMessage(item, "redirect", "Do the dependabot batch first.")).toContain("Do this instead: Do the dependabot batch first.");
@@ -76,7 +76,7 @@ test("a proposal carries the filer's model and its reason; a decision refuses on
 });
 
 test("a go names a model only when it starts work: Greg's pick, else the filer's, else the default", () => {
-  const item = { ...base, id: "x", kind: "proposal" as const, model: null, modelWhy: null, status: "open" as const, created: "", answered: null, note: null, body: "" };
+  const item = { ...base, id: "x", kind: "proposal" as const, model: null, modelWhy: null, status: "open" as const, created: "", answered: null, note: null, hiveSync: null, body: "" };
   expect(answerModel(item, "go", "fable", "opus")).toBe("fable");
   expect(answerModel({ ...item, model: "sonnet" }, "go", null, "opus")).toBe("sonnet");
   expect(answerModel(item, "go", null, "opus")).toBe("opus");

@@ -164,7 +164,10 @@ title, exactly what it will do on "go", and its case with a recommendation.
 You answer with **Go**, **Not now** (with an optional reason) or
 **Redirect** (with an instruction). The answer goes back to the agent that
 asked, as a message, and is saved in `~/.comb/precedents/`, so later
-decisions can follow earlier ones.
+decisions can follow earlier ones. With hive, each answer also goes to hive
+memory as a decision tagged `precedent`, so any agent's `search_memory`
+finds it. If that write fails, the answer still stands, and the page marks
+it "not in hive memory"; `comb precedents sync` retries.
 
 ![The queue in dark mode](docs/img/now-dark.png)
 
