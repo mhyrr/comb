@@ -16,6 +16,7 @@
  *   GET  /api/inbox/:file       a saved image
  *   GET  /api/usage             plan limits (src/limits.ts) and token counts per AI harness on this machine (src/usage.ts)
  *   GET  /api/pulls             open GitHub PRs in hive's projects (gh, read-only, cached)
+ *   GET  /api/timeline          the last 24 hours, one lane per agent (src/timeline.ts), from the usage index
  *
  * Loopback only, and every request must name this server as its Host (and
  * Origin, for a POST), so no other site can drive the agents.
@@ -32,7 +33,8 @@ import { detectHive, HiveClient, hiveProjectPaths, listHiveProjects, type HiveSe
 import { resolveCombHome } from "../paths";
 import { formatNightly, runNightly } from "../nightly";
 import { isModel, MODELS } from "../models";
-import { answerMessage, answerModel, readItem, recordAnswer } from "../queue";
+import { answerMessage, answerModel, listItems, readItem, recordAnswer } from "../queue";
+import { buildTimeline, readAgentLanes } from "../timeline";
 import { transcriptPath } from "../transcript";
 import { readLimits } from "../limits";
 import { UsageIndex, type Roots } from "../usage";
@@ -268,6 +270,21 @@ export function startPage(opts: PageOpts = {}) {
     return usageRun;
   }
 
+  // --- background sessions, so the timeline can tell the user's own from the rest
+  // `claude agents --json --all` lists every background session for about a month; read at most once a minute.
+  let bgCache: { at: number; ids: Set<string> | null } | null = null;
+  async function backgroundSessions(): Promise<Set<string> | null> {
+    if (bgCache && Date.now() - bgCache.at < 60_000) return bgCache.ids;
+    let ids: Set<string> | null = null;
+    try {
+      ids = new Set((await listLiveSessions(claude, run, true)).filter((r) => r.kind === "background").map((r) => r.sessionId));
+    } catch (err) {
+      console.error("comb page: claude agents --json --all failed:", err);
+    }
+    bgCache = { at: Date.now(), ids };
+    return ids;
+  }
+
   // --- requests ---------------------------------------------------------------
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 
@@ -430,6 +447,26 @@ export function startPage(opts: PageOpts = {}) {
         // Plan limits are one small file, read fresh each time, and shown even while tokens are still being read.
         const limits = await readLimits({ home, settingsPath: opts.claudeSettingsPath });
         return json(usage.ready ? { ...usage.summary(), limits, error: usageError } : { ready: false, limits, error: usageError });
+      }),
+      "/api/timeline": (req) => api(req, async () => {
+        if (!usageRun && Date.now() - usageAt > USAGE_TTL_MS) void refreshUsage();
+        if (!usage.ready && usageRun) await Promise.race([usageRun, Bun.sleep(1500)]);
+        if (!usage.ready) return json({ ready: false, error: usageError });
+        const now = Date.now();
+        const calls = usage.toolCalls();
+        return json({
+          ready: true,
+          error: usageError,
+          ...buildTimeline({
+            now,
+            agents: await readAgentLanes(home),
+            turns: usage.turns(),
+            activity: [...calls, ...usage.records("claude").filter((r) => r.ts >= now - 86_400_000)],
+            calls,
+            queue: await listItems(home),
+            background: await backgroundSessions(),
+          }),
+        });
       }),
       // Bot PRs reach the page only with pullsShowBots on; read per request, so a config edit needs no restart.
       "/api/pulls": (req) => api(req, async () => json(forPage(await pulls.get(), readCombConfig(home).pullsShowBots))),

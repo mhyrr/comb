@@ -12,6 +12,7 @@ import { admit, holdingPlace, patchList, setHtml } from "./patch";
 import { treeOrder } from "./tree";
 import { pullsState, refreshPulls } from "./pulls";
 import { stripFigures, stripHtml } from "./strip";
+import { timelineHtml, type TimelinePayload } from "./timeline";
 import { registerCard } from "./card";
 import { nextCell } from "./roving";
 import { parseTicketText, ticketSummary } from "./ticket-text";
@@ -752,6 +753,7 @@ function renderNow() {
           </section>
           <section class="now-section" id="now-notes"></section>
         </div>
+        <section class="now-section dash-timeline" id="now-timeline" aria-label="What each agent did"></section>
         <section class="now-section dash-tickets" id="now-tickets"></section>
         <aside class="now-section dash-usage usage" id="now-usage" aria-label="Usage"></aside>
         <section class="now-section dash-reports" id="now-reports"></section>
@@ -795,6 +797,7 @@ function renderNow() {
     holdingPlace(dashScroller(), () => Array.from(document.querySelectorAll<HTMLElement>(
       "#now-top, #q-head, #q-cards > .qcard, #q-rest li, #now-notes > *")), draw);
   }
+  void fillTimeline();
   void fillTickets();
   void fillUsage();
   void fillReports();
@@ -819,6 +822,37 @@ document.addEventListener("click", (e) => {
   if (!fig) return;
   document.getElementById(fig.dataset.jump === "queue" ? "now-queue" : "now-usage")?.scrollIntoView({ block: "start", behavior: "smooth" });
 });
+
+// --- Now: what each agent did, the last 24 hours (design doc §4.2).
+let timelineCache: { at: number; data: TimelinePayload } | null = null;
+let timelineBusy = false;
+/** Reads /api/timeline at most once a minute (every few seconds while transcripts are first read); redraws on every state. */
+async function fillTimeline() {
+  const stale = !timelineCache || Date.now() - timelineCache.at > (timelineCache.data.ready ? 60_000 : 3_000);
+  if (stale && !timelineBusy) {
+    timelineBusy = true;
+    try {
+      timelineCache = { at: Date.now(), data: await getJSON<TimelinePayload>("/api/timeline") };
+    } catch (err) {
+      timelineCache = { at: Date.now(), data: { ready: false, error: (err as Error).message } };
+    } finally {
+      timelineBusy = false;
+    }
+    if (!timelineCache.data.ready) setTimeout(() => { if (route.view === "now") void fillTimeline(); }, 3_100);
+  }
+  if (route.view !== "now" || !snap) return;
+  const clockOf = (ms: number) => clock(new Date(ms).toISOString());
+  setSection("now-timeline", timelineHtml(timelineCache?.data ?? null, {
+    now: Date.now(),
+    agents: snap.agents,
+    mine: snap.mine,
+    queue: snap.queue,
+    who,
+    userName: userName(),
+    clock: clockOf,
+    hour: (ms) => new Date(ms).toLocaleTimeString([], { hour: "numeric" }),
+  }, (name) => `#/agent/${encodeURIComponent(name)}`));
+}
 
 let usageCache: { at: number; data: UsagePayload } | null = null;
 let usageBusy = false;

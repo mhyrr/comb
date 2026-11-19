@@ -48,6 +48,9 @@ comb is the work layer: Claude Code background agents, best with hive
   the old status line; install and undo for `comb init`.
 - `src/limits.ts`: the plan-limit bars (session and weekly), read from that
   cache, with a warning when settings.json no longer runs the tee.
+- `src/timeline.ts`: Now's "What each agent did", the last 24 hours per
+  agent, from the usage index's turns, the queue and `reports/` (design doc
+  `docs/design/2026-11-17-now-dashboard.md` §4.2). `src/page/ui/timeline.ts` draws it.
 - `src/usage.ts`: token counts from Claude Code, Codex and Gemini CLI's local
   files for the Now tab's usage panel, with a per-file cache in
   `~/.comb/cache/usage.json`. `src/pricing.ts` is its one price table

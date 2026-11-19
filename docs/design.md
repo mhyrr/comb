@@ -447,6 +447,25 @@ that fills with honey while it works; that is the page's one ambient motion.
   your sessions (each one's last words), Priority tickets (open P0 and P1,
   each with Start), Finished work (reports with their first paragraph). The
   strip replaced the headline's subline and the Working now section.
+- **What each agent did (2026-11-19, `src/timeline.ts`, `src/page/ui/timeline.ts`;
+  design doc §4.2).** The last 24 hours, one lane per agent that did anything
+  in them, beside the queue (across the two right columns on wide screens).
+  Bars are turns, from Claude Code's `turn_duration` lines through the usage
+  index, merged when under 2 minutes apart; a striped bar is the turn running
+  now (calls after the current session's last turn end). Rings are queue items
+  the agent filed, filled once answered; a green hex is a report (its mtime); a
+  red hex a blocker. The right side says each agent's state in words: Working
+  (turn length), Waiting on you or Blocked (age), Finished, Idle, Asleep.
+  Agents own sessions through `session.json` and the `(session xxxxxxxx)` ids
+  on log.md's started-by and resumed-by lines, because a woken agent gets a
+  new session. One grey lane is the user's own sessions: turns whose session
+  is no agent's, not a `claude -p` run (entrypoint `sdk-cli`), and not a
+  background session in `claude agents --json --all` (read at most once a
+  minute). Transcripts can't tell interactive from background on their own:
+  every session says `entrypoint: "cli"`, `userType: "external"` (checked
+  2026-11-19). The latest gap of an hour or more in that lane is shaded as
+  "away", and a sentence on top says who finished, who waits, who still works.
+  Without the background list the user's lane is left out, and the page says so.
 - **Go carries a model when it starts work (D25, 2026-11-15).** A proposal,
   or a review whose filer named a model, shows "Go · Opus ▾". The caret
   lists the models in `src/models.ts` (opus, sonnet, fable); the filer's

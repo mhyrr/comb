@@ -73,7 +73,14 @@ export function parseClaudeLine(line: string, fallbackSession: string): Rec | nu
  * Code writes at each turn's end. The turn ran from end − ms to end. The id
  * is the line's uuid, which a resumed session's copy keeps.
  */
-export type TurnRec = { id: string; session: string; end: number; ms: number };
+export type TurnRec = {
+  id: string;
+  session: string;
+  end: number;
+  ms: number;
+  /** A headless `claude -p` run (entrypoint "sdk-cli"): comb's message relay, scripted jobs. Never one of the user's sessions. */
+  sdk?: true;
+};
 
 /**
  * One tool call: a `tool_use` block. Only its id, time, session and name are
@@ -110,7 +117,8 @@ export function parseClaude(line: string, fallbackSession: string): { rec: Rec |
   if (o?.type === "system") {
     // A sub-agent's turn happens inside its parent's turn; only the parent's counts.
     if (o.subtype !== "turn_duration" || o.isSidechain || !(typeof o.durationMs === "number" && o.durationMs >= 0)) return none;
-    return { rec: null, turn: { id: String(o.uuid ?? `${session}:${ts}`), session, end: ts, ms: o.durationMs }, tools: [] };
+    const sdk = o.entrypoint === "sdk-cli" ? { sdk: true as const } : {};
+    return { rec: null, turn: { id: String(o.uuid ?? `${session}:${ts}`), session, end: ts, ms: o.durationMs, ...sdk }, tools: [] };
   }
   if (o?.type !== "assistant") return none;
   const tools: ToolRec[] = [];
@@ -240,8 +248,11 @@ type Entry = {
   codex?: CodexState;
 };
 
-/** 2 (2026-11-19): turns and tool calls. A version-1 cache is dropped, which costs one full re-read. */
-const CACHE_VERSION = 2;
+/**
+ * 2 (2026-11-19): turns and tool calls. 3 (2026-11-19): turns say when they
+ * came from `claude -p`. An older cache is dropped, which costs one full re-read.
+ */
+const CACHE_VERSION = 3;
 /** Turns and tool calls are kept this long: the tools panel's 7 days plus a day of slack. */
 export const ACTIVITY_DAYS = 8;
 const CHUNK = 8 * 1024 * 1024;
@@ -474,10 +485,10 @@ export class UsageIndex {
   }
 }
 
-const packTurn = (t: TurnRec): unknown[] => [t.id, t.session, t.end, t.ms];
+const packTurn = (t: TurnRec): unknown[] => (t.sdk ? [t.id, t.session, t.end, t.ms, 1] : [t.id, t.session, t.end, t.ms]);
 const unpackTurn = (a: unknown[]): TurnRec => {
-  const [id, session, end, ms] = a as [string, string, number, number];
-  return { id, session, end, ms };
+  const [id, session, end, ms, sdk] = a as [string, string, number, number, number | undefined];
+  return { id, session, end, ms, ...(sdk ? { sdk: true as const } : {}) };
 };
 const packTool = (t: ToolRec): unknown[] => (t.cli ? [t.id, t.ts, t.session, t.name, t.cli] : [t.id, t.ts, t.session, t.name]);
 const unpackTool = (a: unknown[]): ToolRec => {
