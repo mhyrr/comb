@@ -65,23 +65,75 @@ const n = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) &
 
 /** A Claude Code transcript line to a usage record, or null for anything else. */
 export function parseClaudeLine(line: string, fallbackSession: string): Rec | null {
-  if (!line.includes('"usage"')) return null;
+  return parseClaude(line, fallbackSession).rec;
+}
+
+/**
+ * A finished turn: the `system` line with subtype `turn_duration` that Claude
+ * Code writes at each turn's end. The turn ran from end − ms to end. The id
+ * is the line's uuid, which a resumed session's copy keeps.
+ */
+export type TurnRec = { id: string; session: string; end: number; ms: number };
+
+/**
+ * One tool call: a `tool_use` block. Only its id, time, session and name are
+ * kept, never its input. `cli` is the first word of a Bash command, kept only
+ * when it is on CLI_WORDS, so the tools panel can count `gh` beside the MCP
+ * servers (design doc 2026-11-17, decision 6).
+ */
+export type ToolRec = { id: string; ts: number; session: string; name: string; cli?: string };
+
+/** The command-line tools whose Bash calls are counted by name. Nothing else of a command is read. */
+export const CLI_WORDS = ["gh"] as const;
+
+/** The first word of a shell command, after any leading VAR=value assignments, if it is on CLI_WORDS. */
+export function cliWord(command: unknown): string | undefined {
+  if (typeof command !== "string") return undefined;
+  const words = command.trimStart().split(/\s+/, 8);
+  const first = words.find((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w));
+  return first && (CLI_WORDS as readonly string[]).includes(first) ? first : undefined;
+}
+
+/** Everything the index keeps from one Claude Code line: usage, a turn's end, tool calls. One JSON parse. */
+export function parseClaude(line: string, fallbackSession: string): { rec: Rec | null; turn: TurnRec | null; tools: ToolRec[] } {
+  const none = { rec: null, turn: null, tools: [] };
+  const usage = line.includes('"usage"');
+  // Exact compact keys: every tool result line holds "tool_use_id", and those can be megabytes.
+  const turn = line.includes('"subtype":"turn_duration"');
+  const tool = line.includes('"type":"tool_use"');
+  if (!usage && !turn && !tool) return none;
   let o: any;
   try { o = JSON.parse(line); } catch { throw new BadLine(); }
-  if (o?.type !== "assistant") return null;
+  const session = typeof o?.sessionId === "string" ? o.sessionId : fallbackSession;
+  const ts = Date.parse(o?.timestamp);
+  if (!Number.isFinite(ts)) return none;
+  if (o?.type === "system") {
+    // A sub-agent's turn happens inside its parent's turn; only the parent's counts.
+    if (o.subtype !== "turn_duration" || o.isSidechain || !(typeof o.durationMs === "number" && o.durationMs >= 0)) return none;
+    return { rec: null, turn: { id: String(o.uuid ?? `${session}:${ts}`), session, end: ts, ms: o.durationMs }, tools: [] };
+  }
+  if (o?.type !== "assistant") return none;
+  const tools: ToolRec[] = [];
+  for (const b of Array.isArray(o.message?.content) ? o.message.content : []) {
+    if (b?.type !== "tool_use" || typeof b.id !== "string" || typeof b.name !== "string") continue;
+    const cli = b.name === "Bash" ? cliWord(b.input?.command) : undefined;
+    tools.push({ id: b.id, ts, session, name: b.name, ...(cli ? { cli } : {}) });
+  }
+  return { rec: usage ? usageOf(o, ts, session) : null, turn: null, tools };
+}
+
+function usageOf(o: any, ts: number, session: string): Rec | null {
   const m = o.message;
   const u = m?.usage;
   const model = typeof m?.model === "string" ? m.model : "";
   if (!u || !model || model === "<synthetic>") return null;
-  const ts = Date.parse(o.timestamp);
-  if (!Number.isFinite(ts)) return null;
   const write = n(u.cache_creation_input_tokens);
   const write1h = Math.min(write, n(u.cache_creation?.ephemeral_1h_input_tokens));
   return {
     id: String(m.id ?? o.requestId ?? o.uuid),
     ts,
     model,
-    session: typeof o.sessionId === "string" ? o.sessionId : fallbackSession,
+    session,
     input: n(u.input_tokens),
     write5m: write - write1h,
     write1h,
@@ -178,6 +230,9 @@ type Entry = {
   /** Bytes read so far: always the end of the last complete line. */
   offset: number;
   recs: Rec[];
+  /** Claude Code only: finished turns and tool calls, kept for ACTIVITY_DAYS. */
+  turns?: TurnRec[];
+  tools?: ToolRec[];
   /** The newest record ever seen in the file, kept after old records are pruned. */
   lastTs: number;
   /** Lines that were not JSON. */
@@ -185,7 +240,10 @@ type Entry = {
   codex?: CodexState;
 };
 
-const CACHE_VERSION = 1;
+/** 2 (2026-11-19): turns and tool calls. A version-1 cache is dropped, which costs one full re-read. */
+const CACHE_VERSION = 2;
+/** Turns and tool calls are kept this long: the tools panel's 7 days plus a day of slack. */
+export const ACTIVITY_DAYS = 8;
 const CHUNK = 8 * 1024 * 1024;
 
 export type UsageOpts = {
@@ -220,6 +278,10 @@ export class UsageIndex {
   /** Records older than this are not kept: the window plus a day of slack for time zones. */
   private horizon(): number {
     return this.now() - (this.windowDays + 1) * DAY;
+  }
+
+  private activityHorizon(): number {
+    return this.now() - ACTIVITY_DAYS * DAY;
   }
 
   async refresh(): Promise<void> {
@@ -259,9 +321,12 @@ export class UsageIndex {
       }
     }
     let changed = this.lastRead.length > 0;
+    const recent = this.activityHorizon();
     for (const [path, e] of this.entries) {
       if (!seen.has(path)) { this.entries.delete(path); changed = true; continue; }
       if (e.recs.some((r) => r.ts < horizon)) { e.recs = e.recs.filter((r) => r.ts >= horizon); changed = true; }
+      if (e.turns?.some((t) => t.end < recent)) { e.turns = e.turns.filter((t) => t.end >= recent); changed = true; }
+      if (e.tools?.some((t) => t.ts < recent)) { e.tools = e.tools.filter((t) => t.ts >= recent); changed = true; }
     }
     this.ready = true;
     if (changed) await this.save();
@@ -269,6 +334,7 @@ export class UsageIndex {
 
   private async read(harness: HarnessId, path: string, size: number, mtimeMs: number, old: Entry | undefined): Promise<Entry> {
     const horizon = this.horizon();
+    const recent = this.activityHorizon();
     const base = path.split("/").at(-1)!.replace(/\.jsonl?$/, "");
     if (harness === "gemini") {
       const e: Entry = { harness, mtimeMs, size, offset: size, recs: [], lastTs: 0, bad: 0 };
@@ -284,8 +350,8 @@ export class UsageIndex {
     // Append-only: carry on from the last complete line, unless the file shrank (rewritten).
     const resume = old && old.harness === harness && size >= old.offset && old.offset > 0;
     const e: Entry = resume
-      ? { ...old, mtimeMs, size, recs: [...old.recs], codex: old.codex && { ...old.codex } }
-      : { harness, mtimeMs, size, offset: 0, recs: [], lastTs: 0, bad: 0, ...(harness === "codex" ? { codex: codexStart(base) } : {}) };
+      ? { ...old, mtimeMs, size, recs: [...old.recs], codex: old.codex && { ...old.codex }, ...(harness === "claude" ? { turns: [...(old.turns ?? [])], tools: [...(old.tools ?? [])] } : {}) }
+      : { harness, mtimeMs, size, offset: 0, recs: [], lastTs: 0, bad: 0, ...(harness === "codex" ? { codex: codexStart(base) } : {}), ...(harness === "claude" ? { turns: [], tools: [] } : {}) };
     const fh = await open(path, "r");
     try {
       const buf = Buffer.alloc(Math.min(CHUNK, Math.max(1, size - e.offset)));
@@ -303,7 +369,14 @@ export class UsageIndex {
           if (!line) continue;
           let rec: Rec | null;
           try {
-            rec = harness === "claude" ? parseClaudeLine(line, base) : parseCodexLine(line, e.codex!);
+            if (harness === "claude") {
+              const got = parseClaude(line, base);
+              rec = got.rec;
+              if (got.turn && got.turn.end >= recent) e.turns!.push(got.turn);
+              for (const t of got.tools) if (t.ts >= recent) e.tools!.push(t);
+            } else {
+              rec = parseCodexLine(line, e.codex!);
+            }
           } catch {
             e.bad++;
             continue;
@@ -328,7 +401,12 @@ export class UsageIndex {
       const d = JSON.parse(await readFile(this.cachePath, "utf-8"));
       if (d?.v !== CACHE_VERSION || typeof d.entries !== "object") return;
       for (const [path, e] of Object.entries<any>(d.entries)) {
-        this.entries.set(path, { ...e, recs: (e.recs as unknown[][]).map(unpack) });
+        this.entries.set(path, {
+          ...e,
+          recs: (e.recs as unknown[][]).map(unpack),
+          ...(e.turns ? { turns: (e.turns as unknown[][]).map(unpackTurn) } : {}),
+          ...(e.tools ? { tools: (e.tools as unknown[][]).map(unpackTool) } : {}),
+        });
       }
     } catch {
       // A broken cache costs one full re-read, nothing more.
@@ -339,11 +417,37 @@ export class UsageIndex {
   private async save(): Promise<void> {
     if (!this.cachePath) return;
     const entries: Record<string, unknown> = {};
-    for (const [path, e] of this.entries) entries[path] = { ...e, recs: e.recs.map(pack) };
+    for (const [path, e] of this.entries) {
+      entries[path] = {
+        ...e,
+        recs: e.recs.map(pack),
+        ...(e.turns ? { turns: e.turns.map(packTurn) } : {}),
+        ...(e.tools ? { tools: e.tools.map(packTool) } : {}),
+      };
+    }
     await mkdir(dirname(this.cachePath), { recursive: true });
     const tmp = `${this.cachePath}.${process.pid}.tmp`;
     await writeFile(tmp, JSON.stringify({ v: CACHE_VERSION, entries }));
     await rename(tmp, this.cachePath);
+  }
+
+  /**
+   * Claude Code's finished turns in the last ACTIVITY_DAYS, oldest first, each
+   * once. A resumed session copies earlier lines into its own file with its
+   * own session id; both sessions belong to the same agent, so whichever copy
+   * is kept, the agent's turns are the same.
+   */
+  turns(): TurnRec[] {
+    const byId = new Map<string, TurnRec>();
+    for (const e of this.entries.values()) for (const t of e.turns ?? []) if (!byId.has(t.id)) byId.set(t.id, t);
+    return [...byId.values()].sort((a, b) => a.end - b.end);
+  }
+
+  /** Claude Code's tool calls in the last ACTIVITY_DAYS, oldest first, each once (by tool-use id). */
+  toolCalls(): ToolRec[] {
+    const byId = new Map<string, ToolRec>();
+    for (const e of this.entries.values()) for (const t of e.tools ?? []) if (!byId.has(t.id)) byId.set(t.id, t);
+    return [...byId.values()].sort((a, b) => a.ts - b.ts);
   }
 
   /** Every kept record of a harness, each model call once. */
@@ -370,6 +474,16 @@ export class UsageIndex {
   }
 }
 
+const packTurn = (t: TurnRec): unknown[] => [t.id, t.session, t.end, t.ms];
+const unpackTurn = (a: unknown[]): TurnRec => {
+  const [id, session, end, ms] = a as [string, string, number, number];
+  return { id, session, end, ms };
+};
+const packTool = (t: ToolRec): unknown[] => (t.cli ? [t.id, t.ts, t.session, t.name, t.cli] : [t.id, t.ts, t.session, t.name]);
+const unpackTool = (a: unknown[]): ToolRec => {
+  const [id, ts, session, name, cli] = a as [string, number, string, string, string | undefined];
+  return { id, ts, session, name, ...(cli ? { cli } : {}) };
+};
 const pack = (r: Rec): unknown[] => [r.id, r.ts, r.model, r.session, r.input, r.write5m, r.write1h, r.read, r.output, r.thinking, r.fast ? 1 : 0];
 const unpack = (a: unknown[]): Rec => {
   const [id, ts, model, session, input, write5m, write1h, read, output, thinking, fast] = a as [string, number, string, string, number, number, number, number, number, number, number];
