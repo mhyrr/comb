@@ -599,7 +599,9 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 /* Timeline */
 .timeline { padding: 20px 40px 28px; }
 .ev { display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 0; }
-.ev .t { font-size: var(--t-xs); color: var(--faint); padding-top: 3px; font-variant-numeric: tabular-nums; }
+.ev .t { font-size: var(--t-xs); color: var(--faint); padding: 3px 8px 0 0; font-variant-numeric: tabular-nums; line-height: 1.35; }
+/* The day period ("PM") sits under the digits, so "10:48 PM" keeps clear of the text (app.ts gutterClock). */
+.ev .t .ap { display: block; font-size: 10px; letter-spacing: 0.04em; }
 .ev .b { min-width: 0; }
 .ev + .ev { margin-top: 14px; }
 .ev-in .b { border-left: 1px solid var(--hair); padding: 1px 0 1px 15px; }
