@@ -273,3 +273,97 @@ describe("panel formatting", () => {
     expect(usageHtml({ ready: false, error: "EACCES" })).toContain("Could not read usage: EACCES");
   });
 });
+
+describe("turns and tool calls (usage index v2)", () => {
+  const turnLine = (uuid: string, session: string, hoursAgo: number, ms: number, extra: object = {}) =>
+    line({ type: "system", subtype: "turn_duration", uuid, sessionId: session, timestamp: at(hoursAgo), durationMs: ms, isMeta: false, ...extra });
+  const toolLine = (session: string, hoursAgo: number, blocks: object[], msgId = `m-${session}-${hoursAgo}`) => line({
+    type: "assistant", sessionId: session, timestamp: at(hoursAgo), uuid: `u-${msgId}`,
+    message: { id: msgId, model: "claude-opus-5-5", role: "assistant", content: blocks, usage: usage(5) },
+  });
+  const use = (id: string, name: string, input: object) => ({ type: "tool_use", id, name, input });
+  const secret = "cat ~/secret-project/.env | grep TOKEN";
+
+  async function claudeFile(name: string, text: string) {
+    await mkdir(join(roots.claude, "-proj"), { recursive: true });
+    await writeFile(join(roots.claude, "-proj", name), text);
+  }
+
+  test("parse: a turn's end and length, each tool call's name, and gh by first word; never the input", async () => {
+    const { parseClaude, cliWord } = await import("../usage");
+    expect(parseClaude(turnLine("t1", "s1", 2, 90_000).trim(), "f").turn).toEqual({ id: "t1", session: "s1", end: Date.parse(at(2)), ms: 90_000 });
+    const got = parseClaude(toolLine("s1", 1, [
+      { type: "text", text: "private words" },
+      use("toolu_a", "Bash", { command: "gh pr list --state open" }),
+      use("toolu_b", "Bash", { command: secret }),
+      use("toolu_c", "mcp__hive__search_memory", { query: "private words" }),
+      use("toolu_d", "Bash", { command: "GH_PAGER=cat  gh api repos" }),
+    ]).trim(), "f");
+    expect(got.tools.map((t) => [t.id, t.name, t.cli ?? null])).toEqual([
+      ["toolu_a", "Bash", "gh"], ["toolu_b", "Bash", null], ["toolu_c", "mcp__hive__search_memory", null], ["toolu_d", "Bash", "gh"],
+    ]);
+    expect(got.rec?.output).toBe(5); // the usage still counts from the same line
+    expect(JSON.stringify(got)).not.toContain("private words");
+    expect(JSON.stringify(got)).not.toContain("secret-project");
+    expect([cliWord("ghost run"), cliWord("git push"), cliWord("  gh\tauth status"), cliWord(undefined)]).toEqual([undefined, undefined, "gh", undefined]);
+  });
+
+  test("parse: a sub-agent's turn is not a turn, and a tool result line is not a tool call", async () => {
+    const { parseClaude } = await import("../usage");
+    expect(parseClaude(turnLine("t9", "s1", 1, 5_000, { isSidechain: true }).trim(), "f").turn).toBeNull();
+    const result = line({ type: "user", sessionId: "s1", timestamp: at(1), message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_a", content: "big output" }] } });
+    expect(parseClaude(result.trim(), "f")).toEqual({ rec: null, turn: null, tools: [] });
+  });
+
+  test("index: turns and calls count once across a resumed copy; older than 8 days drop out", async () => {
+    const calls = [use("toolu_1", "mcp__comb__agent_send", { to: "maya", message: "private words" }), use("toolu_2", "Bash", { command: "gh pr view 5" })];
+    const original = turnLine("t1", "s1", 30, 60_000) + toolLine("s1", 30.1, calls) + turnLine("t2", "s1", 2, 120_000) + turnLine("t-old", "s1", 9 * 24, 1_000);
+    // A resumed session copies the earlier lines into its own file, under its own session id.
+    const resumed = turnLine("t1", "s2", 30, 60_000) + toolLine("s2", 30.1, calls, "m-s1-30.1") + turnLine("t3", "s2", 1, 30_000);
+    await claudeFile("s1.jsonl", original);
+    await claudeFile("s2.jsonl", resumed);
+    const ix = index();
+    await ix.refresh();
+    expect(ix.turns().map((t) => [t.id, t.ms])).toEqual([["t1", 60_000], ["t2", 120_000], ["t3", 30_000]]);
+    expect(ix.toolCalls().map((t) => [t.id, t.name, t.cli ?? null])).toEqual([["toolu_1", "mcp__comb__agent_send", null], ["toolu_2", "Bash", "gh"]]);
+    // The usage panel's own counts are unchanged by the new records.
+    expect(ix.summary().claude.week.calls).toBe(1);
+  });
+
+  test("cache: turns and calls survive a restart, the file holds no tool input, and a version-1 cache is read again", async () => {
+    await claudeFile("s1.jsonl", turnLine("t1", "s1", 3, 60_000) + toolLine("s1", 3, [use("toolu_1", "Bash", { command: secret })]));
+    const cachePath = join(dir, "cache", "usage.json");
+    const a = index(cachePath);
+    await a.refresh();
+    const raw = await Bun.file(cachePath).text();
+    expect(raw).not.toContain("secret-project");
+    expect(JSON.parse(raw).v).toBe(2);
+
+    const b = index(cachePath);
+    await b.refresh();
+    expect(b.lastRead).toEqual([]); // nothing re-read: the cache carried it
+    expect(b.turns().map((t) => t.id)).toEqual(["t1"]);
+    expect(b.toolCalls().map((t) => t.id)).toEqual(["toolu_1"]);
+
+    // An older comb wrote a version-1 cache, without turns: it is dropped and the files read whole.
+    const v1 = JSON.parse(raw);
+    v1.v = 1;
+    for (const e of Object.values<Record<string, unknown>>(v1.entries)) { delete e.turns; delete e.tools; }
+    await writeFile(cachePath, JSON.stringify(v1));
+    const c = index(cachePath);
+    await c.refresh();
+    expect(c.lastRead).toHaveLength(1);
+    expect(c.turns().map((t) => t.id)).toEqual(["t1"]);
+  });
+
+  test("an appended file adds its new turns and calls to the ones already read", async () => {
+    await claudeFile("s1.jsonl", turnLine("t1", "s1", 5, 10_000));
+    const ix = index();
+    await ix.refresh();
+    await appendFile(join(roots.claude, "-proj", "s1.jsonl"), toolLine("s1", 4, [use("toolu_9", "mcp__playwright__browser_navigate", { url: "http://x" })]) + turnLine("t2", "s1", 4, 20_000));
+    await utimes(join(roots.claude, "-proj", "s1.jsonl"), new Date(), new Date(Date.now() + 5_000));
+    await ix.refresh();
+    expect(ix.turns().map((t) => t.id)).toEqual(["t1", "t2"]);
+    expect(ix.toolCalls().map((t) => t.name)).toEqual(["mcp__playwright__browser_navigate"]);
+  });
+});

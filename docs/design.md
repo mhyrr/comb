@@ -333,6 +333,16 @@ dashboard as too busy, too long, and read-only.
   `src/pricing.ts`, with its source date, and are labeled API-equivalent.
   Models without a price we trust (Haiku 5.5, fast mode, every non-Claude
   model) are left out of the dollars, and the panel says how much was left out.
+  The same read also keeps, for 8 days, each finished turn (Claude Code's
+  `turn_duration` line: end and length) and each tool call (id, time,
+  session and name only; for Bash, the first word of the command when it is
+  `gh`, and nothing else of it), for the Now timeline and tools panel
+  (2026-11-19, cache version 2; design doc
+  `docs/design/2026-11-17-now-dashboard.md` §4.2–4.3). Both are deduped by
+  the id a resumed session's copy keeps (the turn's uuid, the `toolu_` id).
+  Sub-agent turns are skipped; their tool calls count for the agent. The
+  version bump costs one full re-read after upgrading: 12.7 s on 2026-11-19's
+  transcripts, against 11.2 s for version 1 on the same files.
 - Plan limits (top of the usage panel, `src/limits.ts`, added 2026-11-17,
   Greg: "I care most about my limits"). These are the session (5-hour) and
   weekly bars from Claude Code's `/usage`. Claude Code hands them to the
