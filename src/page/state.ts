@@ -19,6 +19,13 @@ export type Activity = "working" | "waiting" | "asleep";
 /** The latest thing a session did, in one line. */
 export type Now = { kind: "tool" | "say" | "in"; text: string; tool?: string; at: string };
 
+/**
+ * A Now as the transcript gives it. An "in" line keeps its sender apart from
+ * the message; `labelRecent` puts the name in front at snapshot time, so a
+ * changed userName shows at once even though tails are cached.
+ */
+type Line = Now & { from?: string };
+
 export type AgentNode = {
   name: string;
   parent: string;
@@ -99,6 +106,10 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
   const bySession = new Map(live.map((s) => [s.sessionId, s]));
   const agentSessions = new Set<string>();
 
+  const config = readCombConfig(home);
+  const user = userLabel(config);
+  const label = (tail: Tail | null) => (tail ? labelRecent(tail.recent, user) : []);
+
   const agents: AgentNode[] = [];
   for (const name of names) {
     const dir = agentDir(name, home);
@@ -107,6 +118,7 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
     const row = session ? bySession.get(session.sessionId) : undefined;
     if (session) agentSessions.add(session.sessionId);
     const tail = session ? await tailNow(transcriptPath(session.cwd, session.sessionId, opts.claudeHome), session.parent, session.cwd) : null;
+    const recent = label(tail);
     agents.push({
       name,
       parent: session?.parent ?? GREG,
@@ -115,8 +127,8 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
       sessionId: session?.sessionId ?? null,
       cwd: session?.cwd ?? null,
       project: session?.project ?? null,
-      now: tail?.recent.at(-1) ?? null,
-      recent: tail?.recent ?? [],
+      now: recent.at(-1) ?? null,
+      recent,
       note: tail?.note ?? null,
       // Claude Code prunes old transcripts; the log still says when it last acted.
       lastActive: tail?.mtime ?? mtimeOf(join(dir, "log.md")),
@@ -124,7 +136,6 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
       finished: false,
     });
   }
-  const config = readCombConfig(home);
   const foldAfter = config.foldAfterHours * HOUR_MS;
   const now = Date.now();
   const folded = foldedAgents(agents, now, foldAfter);
@@ -138,6 +149,7 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
     if (row.kind === "background" && names.includes(row.name)) continue;
     const kind = row.kind === "interactive" ? "interactive" : "background";
     const tail = await tailNow(transcriptPath(row.cwd, row.sessionId, opts.claudeHome), kind === "interactive" ? GREG : "comb", row.cwd);
+    const recent = label(tail);
     const node: SessionNode = {
       name: row.name,
       sessionId: row.sessionId,
@@ -145,8 +157,8 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
       project: opts.hive ? projectFor(row.cwd, opts.hiveHome) : null,
       kind,
       activity: activityOf(row),
-      now: tail?.recent.at(-1) ?? null,
-      recent: tail?.recent ?? [],
+      now: recent.at(-1) ?? null,
+      recent,
       note: tail?.note ?? null,
       lastActive: tail?.mtime ?? null,
       startedAt: typeof (row as any).startedAt === "number" ? new Date((row as any).startedAt).toISOString() : null,
@@ -161,7 +173,6 @@ export async function buildSnapshot(opts: BuildOpts): Promise<Snapshot> {
   others.sort(recent);
 
   const queue = await listItems(home).catch(() => []);
-  const user = userLabel(config);
   return {
     at: new Date().toISOString(), user, hive: opts.hive ?? false, defaultModel: config.defaultModel,
     agents, mine, others, queue, error: opts.liveError ?? null,
@@ -266,7 +277,7 @@ const MAX_TAIL_BYTES = 16 * 1024 * 1024;
  * them happened. Not the file's mtime: Claude Code writes bookkeeping lines
  * to an idle session's transcript.
  */
-type Tail = { recent: Now[]; note: { text: string; at: string } | null; mtime: string | null };
+type Tail = { recent: Line[]; note: { text: string; at: string } | null; mtime: string | null };
 
 export async function tailNow(path: string, defaultFrom: string, cwd: string): Promise<Tail | null> {
   let size: number;
@@ -311,15 +322,21 @@ async function readTail(path: string, size: number, defaultFrom: string, cwd: st
 }
 
 /** The last `n` events worth a line, oldest first. */
-export function recentOf(events: FeedEvent[], n: number): Now[] {
-  const out: Now[] = [];
+export function recentOf(events: FeedEvent[], n: number): Line[] {
+  const out: Line[] = [];
   for (let i = events.length - 1; i >= 0 && out.length < n; i--) {
     const e = events[i]!;
     if (e.k === "tool") out.push({ kind: "tool", tool: e.name, text: e.detail, at: e.at });
     else if (e.k === "say") out.push({ kind: "say", text: firstLine(e.text), at: e.at });
-    else if (e.k === "in") out.push({ kind: "in", text: `${e.from}: ${firstLine(e.text)}`, at: e.at });
+    else if (e.k === "in") out.push({ kind: "in", from: e.from, text: firstLine(e.text), at: e.at });
   }
   return out.reverse();
+}
+
+/** Puts each "in" line's sender in front of it, with the user's own name for theirs. */
+export function labelRecent(lines: Line[], user: UserLabel): Now[] {
+  return lines.map(({ from, ...now }) =>
+    from === undefined ? now : { ...now, text: `${from === GREG ? user.name : from}: ${now.text}` });
 }
 
 function firstLine(s: string): string {
