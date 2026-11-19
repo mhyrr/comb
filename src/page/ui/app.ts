@@ -44,6 +44,19 @@ function clock(iso: string): string {
   const d = new Date(iso);
   return isNaN(+d) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
+/**
+ * The timeline's clock, as HTML. "10:48 PM" is wider than the 52px gutter, so
+ * the day period sits on its own line under the digits. A 24-hour locale has
+ * none and stays one line.
+ */
+function gutterClock(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(+d)) return "";
+  const parts = new Intl.DateTimeFormat([], { hour: "numeric", minute: "2-digit" }).formatToParts(d);
+  const period = parts.find((p) => p.type === "dayPeriod")?.value ?? "";
+  const digits = parts.filter((p) => p.type !== "dayPeriod").map((p) => p.value).join("").trim();
+  return period ? `${esc(digits)}<span class="ap">${esc(period)}</span>` : esc(digits);
+}
 function dayOf(iso: string): string {
   const d = new Date(iso);
   if (isNaN(+d)) return "";
@@ -1146,16 +1159,16 @@ function renderTimeline() {
         day = d;
       }
       const c = clock(b.at);
-      const t = c !== lastClock ? c : "";
+      const t = c !== lastClock ? gutterClock(b.at) : ""; // HTML
       lastClock = c;
       if (b.k === "in") {
         if (b.from === "comb") {
-          html.push(`<div class="ev ev-idle"><span class="t">${esc(t)}</span><div class="b">${esc(combNote(b.text))}</div></div>`);
+          html.push(`<div class="ev ev-idle"><span class="t">${t}</span><div class="b">${esc(combNote(b.text))}</div></div>`);
         } else {
-          html.push(`<div class="ev ev-in${b.from === "greg" ? " you" : " from-other"}"><span class="t">${esc(t)}</span><div class="b"><div class="from">${esc(who(b.from))}</div><div class="prose">${md(b.text)}</div></div></div>`);
+          html.push(`<div class="ev ev-in${b.from === "greg" ? " you" : " from-other"}"><span class="t">${t}</span><div class="b"><div class="from">${esc(who(b.from))}</div><div class="prose">${md(b.text)}</div></div></div>`);
         }
       } else if (b.k === "say") {
-        html.push(`<div class="ev ev-say"><span class="t">${esc(t)}</span><div class="b prose">${md(b.text)}</div></div>`);
+        html.push(`<div class="ev ev-say"><span class="t">${t}</span><div class="b prose">${md(b.text)}</div></div>`);
       } else if (b.k === "idle") {
         const secs = b.ms ? Math.round(b.ms / 1000) : null;
         const dur = secs === null ? "" : secs < 90 ? ` after ${secs}s` : ` after ${Math.round(secs / 60)}m`;
@@ -1164,7 +1177,7 @@ function renderTimeline() {
         const open = timelineOpen.has(b.id);
         const shown = open || b.tools.length <= 8 ? b.tools : b.tools.slice(-6);
         const more = b.tools.length - shown.length;
-        html.push(`<div class="ev ev-tools"><span class="t">${esc(t)}</span><div class="b"><ul class="tools">${
+        html.push(`<div class="ev ev-tools"><span class="t">${t}</span><div class="b"><ul class="tools">${
           more ? `<li><button class="expand" type="button" data-group="${esc(b.id)}">Show ${more} earlier steps</button></li>` : ""
         }${shown.map(toolItem).join("")}</ul></div></div>`);
       }
@@ -1174,7 +1187,7 @@ function renderTimeline() {
     if (to && feed.ready) {
       outbox.settle(to, feed.events);
       for (const o of outbox.for(to)) {
-        html.push(`<div class="ev ev-in you out-${o.state}" data-out="${esc(o.id)}"><span class="t">${esc(clock(new Date(o.at).toISOString()))}</span><div class="b"><div class="from">${esc(userName())}</div><div class="prose">${md(o.text)}</div>${outStatus(o, to)}</div></div>`);
+        html.push(`<div class="ev ev-in you out-${o.state}" data-out="${esc(o.id)}"><span class="t">${gutterClock(new Date(o.at).toISOString())}</span><div class="b"><div class="from">${esc(userName())}</div><div class="prose">${md(o.text)}</div>${outStatus(o, to)}</div></div>`);
       }
     }
     if (feed.problem) html.push(`<p class="problem">${esc(feed.problem)}</p>`);

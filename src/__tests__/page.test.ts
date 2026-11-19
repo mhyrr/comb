@@ -222,6 +222,27 @@ describe("snapshot", () => {
     ]);
   });
 
+  test("a now line from the user carries the userName from config.json, not \"greg\"", async () => {
+    await agent("maya", "greg", "s-maya");
+    await agent("shop", "maya", "s-shop");
+    await mkdir(join(claudeHome, "projects", "-w"), { recursive: true });
+    await mkdir(join(claudeHome, "projects", "-r"), { recursive: true });
+    await writeFile(join(claudeHome, "projects", "-w", "s-maya.jsonl"), user("what's waiting on me?") + "\n");
+    await writeFile(join(claudeHome, "projects", "-w", "s-shop.jsonl"), user("TK-42 is next") + "\n");
+    await writeFile(join(claudeHome, "projects", "-r", "s-mine.jsonl"), user("ship it") + "\n");
+    const live = [{ id: "2", sessionId: "s-mine", name: "web-3f", cwd: "/r", kind: "interactive", status: "idle" }];
+    const lines = async () => {
+      const snap = await buildSnapshot({ home, claudeHome, live });
+      return [...snap.agents.map((a) => a.now?.text), snap.mine[0]!.now?.text];
+    };
+
+    await writeFile(join(home, "config.json"), JSON.stringify({ userName: "Ada" }));
+    expect(await lines()).toEqual(["Ada: what's waiting on me?", "maya: TK-42 is next", "Ada: ship it"]);
+    // Tails are cached by size; a renamed user still shows at once.
+    await writeFile(join(home, "config.json"), JSON.stringify({ userName: "Bea" }));
+    expect((await lines())[0]).toBe("Bea: what's waiting on me?");
+  });
+
   test("the fold window comes from foldAfterHours in config.json, one day by default", async () => {
     await agent("maya", "greg", "s-maya");
     await agent("yesterday", "maya", "s-y");
