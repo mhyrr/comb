@@ -8,11 +8,12 @@ import { readFile } from "node:fs/promises";
 import { formatAgentList, listAgents, sendToAgent, startAgent } from "./agents";
 import { UsageError } from "./errors";
 import { combInit, runInitSteps } from "./init";
-import { detectHive, HIVE_URL } from "./hive";
+import { detectHive, HIVE_URL, HiveClient, listHiveProjects } from "./hive";
 import { formatNightly, NIGHTLY_EVERY_MS, runNightly } from "./nightly";
 import { startPage } from "./page/server";
 import { installPageService, PAGE_PORT } from "./page/service";
 import { resolveCombHome } from "./paths";
+import { formatSyncReport, syncAllPrecedents } from "./queue";
 import { claudeSettingsPath, installStatusLine, runTee, statusLineStatus, undoStatusLine } from "./statusline";
 
 const usage = `comb: Claude Code background agents with one job each, a live page and a queue.
@@ -40,6 +41,10 @@ Usage:
   comb nightly [--dry-run]       With hive: file hive's new Act picks into the queue now (briefing asks
                                  too if config.json sets nightlyAsks); --dry-run prints what it
                                  would file and why it skips
+  comb precedents sync [--dry-run]
+                                 With hive: queue each precedent not yet in hive memory as a
+                                 decision candidate (Greg's answers save there as he gives them;
+                                 this backfills and retries failures). --dry-run prints the entries
 
 Agents are Claude Code background sessions. Watch one with: claude attach <id>
 From a Claude session, use the comb MCP tools: agent_list, agent_send, agent_start.`;
@@ -97,6 +102,26 @@ async function main(args: string[]): Promise<void> {
       return;
     }
     console.log(formatNightly(await runNightly({ dryRun, hiveHome: hive.home })));
+    return;
+  }
+  if (cmd === "precedents") {
+    const [sub, ...flags] = rest;
+    const dryRun = flags.includes("--dry-run");
+    const unknown = flags.find((a) => a !== "--dry-run");
+    if (sub !== "sync" || unknown) throw new UsageError(`${unknown ? `Unknown flag: ${unknown}\n\n` : ""}${usage}`);
+    const hive = detectHive();
+    if (!hive.enabled) {
+      console.log(`hive is off (${hive.why}), so precedents stay in ~/.comb/precedents. Install hive: ${HIVE_URL}`);
+      return;
+    }
+    const client = new HiveClient();
+    try {
+      const report = await syncAllPrecedents({ writer: client, projects: listHiveProjects(hive.home) }, { dryRun });
+      console.log(formatSyncReport(report, dryRun));
+      if (report.failed.length) process.exitCode = 1;
+    } finally {
+      await client.close();
+    }
     return;
   }
   if (cmd === "page") {

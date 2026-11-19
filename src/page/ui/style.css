@@ -374,6 +374,7 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 .answered .v-declined, .answered .v-redirected { color: var(--graphite); }
 .answered .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
 .answered .w { color: var(--faint); white-space: nowrap; }
+.answered .unsynced { color: var(--danger); white-space: nowrap; }
 
 .note-card { display: block; text-decoration: none; padding: 16px 0; border-top: 1px solid var(--hair-2); }
 .note-card:first-of-type { border-top: 0; padding-top: 2px; }

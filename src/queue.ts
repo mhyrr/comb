@@ -12,6 +12,7 @@ import { join } from "node:path";
 
 import { UsageError } from "./errors";
 import { isModel, MODELS, picksModel } from "./models";
+import type { MemoryWriter } from "./hive";
 import { getCombPaths } from "./paths";
 
 export const KINDS = ["proposal", "decision", "review", "blocker"] as const;
@@ -41,11 +42,16 @@ export type QueueItem = {
   model: string | null;
   /** The filer's one-line reason for its model pick. */
   modelWhy: string | null;
+  /**
+   * Whether the precedent reached hive memory (D13): "queued <project> <when>",
+   * or "not synced: <why>" for the page to flag. Null without hive.
+   */
+  hiveSync: string | null;
   /** The agent's case: why, its recommendation, the evidence. Markdown. */
   body: string;
 };
 
-const FIELDS = ["id", "kind", "from", "title", "action", "project", "ticket", "model", "modelWhy", "status", "created", "answered", "note"] as const;
+const FIELDS = ["id", "kind", "from", "title", "action", "project", "ticket", "model", "modelWhy", "status", "created", "answered", "note", "hiveSync"] as const;
 export { picksModel };
 
 /**
@@ -86,6 +92,7 @@ export function parseItem(text: string): QueueItem {
     created: f.created ?? "",
     answered: orNull(f.answered),
     note: orNull(f.note),
+    hiveSync: orNull(f.hiveSync),
     body: m[2]!.trim(),
   };
 }
@@ -136,6 +143,7 @@ export async function addItem(n: NewItem, home?: string, now = new Date()): Prom
     created: now.toISOString(),
     answered: null,
     note: null,
+    hiveSync: null,
     body: n.body?.trim() ?? "",
   };
   await mkdir(join(queueDir, id, "evidence"), { recursive: true });
@@ -186,12 +194,26 @@ export function answerMessage(item: QueueItem, answer: Answer, note: string | nu
   return `Greg redirected ${ref}. Do this instead: ${note}`;
 }
 
+/** Where a precedent goes in hive memory, and through what. Null when hive is off (D24). */
+export type PrecedentSink = {
+  writer: MemoryWriter;
+  /** hive's registered projects; an item outside them is scoped to comb. */
+  projects: string[];
+  /** Ms before a hung hive counts as a failed sync. */
+  timeoutMs?: number;
+};
+
+export type SyncResult = { ok: true; project: string } | { ok: false; error: string };
+
 /**
  * Records Greg's answer and his precedent. Call after the message reached the
- * agent, so an undelivered answer leaves the item open.
+ * agent, so an undelivered answer leaves the item open. With `hive`, it also
+ * queues the precedent in hive memory (D13). A hive failure never fails the
+ * answer: it is logged, and the item and the precedent say it was not synced.
  */
 export async function recordAnswer(
   id: string, answer: Answer, note: string | null, home?: string, now = new Date(), model: string | null = null,
+  hive: PrecedentSink | null = null,
 ): Promise<QueueItem> {
   const item = await readItem(id, home);
   if (item.status !== "open") throw new UsageError(`Already answered (${item.status}).`);
@@ -208,7 +230,7 @@ export async function recordAnswer(
     "",
     `- Asked by: ${item.from} (${item.kind}${item.project ? `, ${item.project}` : ""}${item.ticket ? ` ${item.ticket}` : ""})`,
     `- Proposed: ${item.action}`,
-    `- Greg: ${answer === "go" ? "go" : answer === "no" ? "not now" : "redirect"}`,
+    `- Greg: ${answerWord(answer)}`,
     ...(answer === "go" && model
       ? [`- Model: ${model}${proposedModel && proposedModel !== model ? ` (${item.from} proposed ${proposedModel})` : ""}`]
       : []),
@@ -217,5 +239,178 @@ export async function recordAnswer(
     "",
   ].join("\n");
   await writeFile(join(paths.precedentsDir, `${id}.md`), precedent, "utf-8");
+  if (hive) await syncPrecedent(item, hive, home, now);
   return item;
+}
+
+const answerWord = (a: Answer) => (a === "go" ? "go" : a === "no" ? "not now" : "redirect");
+
+/** The answer an answered item holds; null while it is open. */
+export function answerOf(item: QueueItem): Answer | null {
+  if (item.status === "approved") return "go";
+  if (item.status === "declined") return "no";
+  if (item.status === "redirected") return "redirect";
+  return null;
+}
+
+/** hive caps an entry at 1000 characters and refuses "## " (a section header). */
+const MAX_ENTRY = 1000;
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+const safe = (s: string) => oneLine(s).replace(/#{2,}\s/g, "# ");
+
+/**
+ * The precedent as one hive memory entry: a decision a later agent can act on.
+ * E.g. `Greg declined maya's proposal "Start instadash on TK-009" (instadash
+ * TK-009) on 2026-11-18: not now. Proposed: … Reason: …`
+ */
+export function precedentEntry(item: QueueItem): string {
+  const answer = answerOf(item);
+  if (!answer) throw new Error(`queue item ${item.id} is not answered`);
+  const verb = answer === "go" ? "approved" : answer === "no" ? "declined" : "redirected";
+  const where = [item.project, item.ticket].filter(Boolean).join(" ");
+  const day = localDay(item.answered);
+  const said = answer === "go" && item.model && picksModel(item) ? `go (model: ${item.model})` : answerWord(answer);
+  const head = `Greg ${verb} ${item.from}'s ${item.kind} "${safe(item.title)}"${where ? ` (${where})` : ""} on ${day}: ${said}.`;
+  const reason = item.note ? safe(item.note) : "";
+  const tail = answer === "redirect" ? ` Do this instead: ${reason}` : reason ? ` Reason: ${reason}` : " No reason given.";
+  const proposed = ` Proposed: ${safe(item.action)}`;
+  // The decision and the reason stay whole; the proposed action gives way first.
+  const room = MAX_ENTRY - head.length - tail.length;
+  if (room >= 20) return head + clip(proposed, room) + tail;
+  return clip(head + tail, MAX_ENTRY);
+}
+
+/** The day Greg answered, on his own clock (the machine's time zone), as YYYY-MM-DD. */
+function localDay(iso: string | null): string {
+  const d = new Date(iso ?? "");
+  if (Number.isNaN(d.getTime())) return "an unknown day";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** The project the entry is scoped to: the item's when hive knows it, else comb. */
+export function precedentProject(item: QueueItem, projects: string[]): string {
+  return item.project && projects.includes(item.project) ? item.project : "comb";
+}
+
+const SYNC_LINE = /^- Hive memory: .*$/m;
+
+/** Whether a precedent file says it already went to hive memory. */
+export function precedentSynced(text: string): boolean {
+  return /^- Hive memory: queued /m.test(text);
+}
+
+/**
+ * Queues one answered item's precedent in hive memory, then records the
+ * outcome in comb's own files: a "- Hive memory:" line in the precedent and
+ * the item's hiveSync field. A hive failure is logged and recorded, never thrown.
+ */
+export async function syncPrecedent(item: QueueItem, hive: PrecedentSink, home?: string, now = new Date()): Promise<SyncResult> {
+  const paths = getCombPaths(home);
+  const project = precedentProject(item, hive.projects);
+  let result: SyncResult;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const content = precedentEntry(item);
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("hive did not answer in time")), hive.timeoutMs ?? 20_000);
+    });
+    await Promise.race([
+      hive.writer.writeMemory({
+        project,
+        type: "decision",
+        content,
+        tags: ["precedent", "queue"],
+        provenanceNote: `Greg's answer on comb's page to queue item ${item.id}, filed by ${item.from}. From comb's precedents/${item.id}.md.`,
+        // A queue answer is Greg's own call, not an agent's judgment: the verifier may place it, not drop it.
+        directive: true,
+      }),
+      timeout,
+    ]);
+    result = { ok: true, project };
+  } catch (err) {
+    result = { ok: false, error: oneLine(err instanceof Error ? err.message : String(err)).slice(0, 300) || "unknown error" };
+    console.error(`comb: precedent ${item.id} was not synced to hive memory: ${result.error}`);
+  } finally {
+    clearTimeout(timer);
+  }
+  const at = now.toISOString();
+  item.hiveSync = result.ok ? `queued ${result.project} ${at}` : `not synced: ${result.error}`;
+  const line = result.ok
+    ? `- Hive memory: queued as a decision in ${result.project} at ${at}`
+    : `- Hive memory: not synced at ${at} (${result.error}). Retry: comb precedents sync`;
+  try {
+    await writeFile(join(paths.queueDir, item.id, "item.md"), serializeItem(item), "utf-8");
+    const file = join(paths.precedentsDir, `${item.id}.md`);
+    const text = existsSync(file) ? await readFile(file, "utf-8") : "";
+    const next = SYNC_LINE.test(text) ? text.replace(SYNC_LINE, line) : `${text.replace(/\n*$/, "\n")}${line}\n`;
+    await writeFile(file, next, "utf-8");
+  } catch (err) {
+    console.error(`comb: could not record the hive sync of precedent ${item.id}:`, err);
+  }
+  return result;
+}
+
+export type SyncReport = {
+  synced: string[];
+  /** Already in hive memory, so left alone. */
+  already: string[];
+  failed: { id: string; error: string }[];
+  skipped: { id: string; why: string }[];
+  /** A dry run's would-be writes. */
+  planned: { id: string; project: string; entry: string }[];
+};
+
+/**
+ * The backfill (`comb precedents sync`): each precedent not yet in hive memory,
+ * once. Idempotent: a precedent whose file says "queued" is left alone. A dry
+ * run writes nothing and lists the entries it would send.
+ */
+export async function syncAllPrecedents(hive: PrecedentSink, o: { home?: string; dryRun?: boolean; now?: Date } = {}): Promise<SyncReport> {
+  const paths = getCombPaths(o.home);
+  const out: SyncReport = { synced: [], already: [], failed: [], skipped: [], planned: [] };
+  if (!existsSync(paths.precedentsDir)) return out;
+  const ids = readdirSync(paths.precedentsDir).filter((f) => f.endsWith(".md")).map((f) => f.slice(0, -3)).sort();
+  for (const id of ids) {
+    if (precedentSynced(await readFile(join(paths.precedentsDir, `${id}.md`), "utf-8"))) {
+      out.already.push(id);
+      continue;
+    }
+    let item: QueueItem;
+    try {
+      item = await readItem(id, o.home);
+    } catch {
+      out.skipped.push({ id, why: "no queue item to build the entry from" });
+      continue;
+    }
+    if (!answerOf(item)) {
+      out.skipped.push({ id, why: "the item is still open" });
+      continue;
+    }
+    if (o.dryRun) {
+      out.planned.push({ id, project: precedentProject(item, hive.projects), entry: precedentEntry(item) });
+      continue;
+    }
+    const r = await syncPrecedent(item, hive, o.home, o.now);
+    if (r.ok) out.synced.push(id);
+    else out.failed.push({ id, error: r.error });
+  }
+  return out;
+}
+
+/** The backfill's report, for the terminal. */
+export function formatSyncReport(r: SyncReport, dryRun: boolean): string {
+  const lines: string[] = [];
+  if (dryRun) {
+    lines.push(`Would queue ${r.planned.length} precedent(s) in hive memory:`);
+    for (const p of r.planned) lines.push(`  ${p.id} -> ${p.project}: ${p.entry}`);
+  } else {
+    lines.push(`Queued ${r.synced.length} precedent(s) in hive memory as decision candidates; hive's nightly verifier admits them.`);
+  }
+  lines.push(`Already synced: ${r.already.length}.`);
+  for (const s of r.skipped) lines.push(`Skipped ${s.id}: ${s.why}.`);
+  if (r.failed.length) {
+    lines.push(`Not synced: ${r.failed.length}. Run it again to retry.`);
+    for (const f of r.failed) lines.push(`  ${f.id}: ${f.error}`);
+  }
+  return lines.join("\n");
 }
