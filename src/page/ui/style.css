@@ -237,22 +237,25 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 /* Now */
 .now-head { font-size: var(--t-3xl); line-height: 1.04; font-weight: 650; letter-spacing: -0.035em; margin: 8px 0 10px; text-wrap: balance; }
-.now-sub { color: var(--graphite); font-size: var(--t-lg); margin: 0 0 40px; max-width: 60ch; }
-
-.live-item {
-  display: grid; grid-template-columns: 40px minmax(0,1fr); column-gap: 14px;
-  padding: 18px 0; border-top: 1px solid var(--hair-2); text-decoration: none;
+/* The figure strip under the headline (design doc §4.1). Honey only on the working hex. */
+.strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); margin-top: 18px; }
+.strip.n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.fig { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 14px 18px 14px 0; text-align: left; text-decoration: none; color: inherit; background: none; border: 0; border-radius: 0; font: inherit; }
+.fig + .fig { padding-left: 18px; border-left: 1px solid var(--hair-2); }
+.fig .sk { display: flex; align-items: center; gap: 6px; font-size: var(--t-sm); color: var(--graphite); }
+.fig .sv { font-size: 32px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.fig .sv small { font-size: var(--t-md); font-weight: 500; letter-spacing: 0; color: var(--graphite); }
+.fig .sv.muted { color: var(--faint); }
+.fig .sc { font-size: var(--t-sm); color: var(--ink-2); overflow-wrap: anywhere; }
+a.fig:hover .sv, button.fig:hover .sv { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 5px; }
+.strip-hex { width: 11px; height: 12px; flex: none; fill: none; stroke: var(--faint); stroke-width: 2; }
+.strip-hex.live { fill: var(--honey); stroke: var(--honey); }
+@container stage (max-width: 760px) {
+  .strip, .strip.n3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fig:nth-child(odd) { padding-left: 0; border-left: 0; }
+  .fig:nth-child(n+3) { border-top: 1px solid var(--hair-2); }
 }
-.live-item:first-of-type { border-top: 0; }
-.live-item .who { display: flex; align-items: baseline; gap: 10px; }
-.live-item .who b { font-size: var(--t-lg); font-weight: 650; letter-spacing: -0.015em; }
-.live-item .who span { color: var(--graphite); font-size: var(--t-sm); }
-.live-item ol { list-style: none; margin: 8px 0 0; padding: 0; }
-.live-item li { font-size: var(--t-sm); color: var(--graphite); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 1px 0; }
-.live-item li:last-child { color: var(--ink); }
-.live-item li .tool { font-weight: 600; margin-right: 6px; color: var(--ink-2); }
-.live-item.working li:last-child .tool { color: var(--honey-deep); }
-.live-item:hover .who b { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+
 .quiet-list a { display: flex; gap: 12px; align-items: baseline; padding: 7px 0; text-decoration: none; border-top: 1px solid var(--hair-2); }
 .quiet-list a:first-child { border-top: 0; }
 .quiet-list b { font-weight: 600; min-width: 120px; }
@@ -263,7 +266,6 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.92em; }
 .stage { container-type: inline-size; container-name: stage; }
 .stage-inner.dash { max-width: 1240px; padding-top: 44px; }
 .now-top { margin-bottom: 36px; }
-.now-top .now-sub { margin-bottom: 0; }
 /* Now's grid. Tickets, usage and reports are grid items placed by area, so one
    markup serves three layouts:
    - narrow (stage ≤ 980px): one column, in reading order;

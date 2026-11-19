@@ -10,7 +10,8 @@ import type { Activity, AgentNode, Now, SessionNode, Snapshot } from "../state";
 import { esc, md as markdown } from "./md";
 import { admit, holdingPlace, patchList, setHtml } from "./patch";
 import { treeOrder } from "./tree";
-import { refreshPulls } from "./pulls";
+import { pullsState, refreshPulls } from "./pulls";
+import { stripFigures, stripHtml } from "./strip";
 import { registerCard } from "./card";
 import { nextCell } from "./roving";
 import { parseTicketText, ticketSummary } from "./ticket-text";
@@ -166,7 +167,8 @@ state.addEventListener("state", (e) => {
   renderRail();
   renderMayaHead();
   refreshStageFromSnapshot();
-  void refreshPulls(!!snap?.hive); // the top bar's PRs, on every view; throttled inside
+  // The top bar's PRs, on every view; throttled inside. Now's strip counts the ready ones.
+  void refreshPulls(!!snap?.hive).then(drawStrip);
 });
 state.addEventListener("open", () => { connected = true; renderPulse(); });
 state.addEventListener("error", () => { connected = false; renderPulse(); });
@@ -748,7 +750,6 @@ function renderNow() {
             <div id="q-cards"></div>
             <div id="q-rest"></div>
           </section>
-          <section class="now-section" id="now-live"></section>
           <section class="now-section" id="now-notes"></section>
         </div>
         <section class="now-section dash-tickets" id="now-tickets"></section>
@@ -768,13 +769,6 @@ function renderNow() {
   const head = open.length
     ? `${count(open.length)} ${open.length === 1 ? "thing waits" : "things wait"} on you.`
     : working.length ? `${count(working.length)} at work.` : "All quiet.";
-  const names = working.map((n) => n.name);
-  const listNames = names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-  const sub = [
-    working.length ? `${listNames} ${working.length === 1 ? "is" : "are"} working right now.` : "Nothing is running.",
-    answered.length ? `You answered ${answered.length} today.` : "",
-    !open.length && !working.length ? "Start a ticket below, or message Maya." : "",
-  ].filter(Boolean).join(" ");
   const release = qRelease;
   qRelease = false;
   const { show, waiting } = admit(open.map((q) => q.id), qShown, !release && queueBusy());
@@ -783,13 +777,14 @@ function renderNow() {
   const byId = new Map(open.map((q) => [q.id, q]));
 
   const draw = () => {
-    setSection("now-top", `<h1 class="now-head">${esc(head)}</h1><p class="now-sub">${esc(sub)}</p>`);
+    // The sentence answers "what needs me"; the strip under it replaces the old subline (design doc §4.1, decision 1).
+    setSection("now-top", `<h1 class="now-head">${esc(head)}</h1><div id="now-strip"></div>`);
+    drawStrip();
     setSection("q-head", `Waiting on you${open.length ? ` <span>${open.length}</span>` : ""}`);
     $("q-new").hidden = !waiting.length;
     if (waiting.length) setSection("q-new", `${count(waiting.length)} new, show`);
     patchList($("q-cards"), show.map((id) => ({ key: id, html: queueCard(byId.get(id)!) })));
     setSection("q-rest", queueRest(open.length, answered));
-    setSection("now-live", working.length ? `<h2>Working now</h2>${working.map(liveItem).join("")}` : "");
     setSection("now-notes", notesHtml(nodes));
   };
   if (release) {
@@ -798,12 +793,32 @@ function renderNow() {
   } else {
     // Rows above the reader may come and go; the one in view stays put.
     holdingPlace(dashScroller(), () => Array.from(document.querySelectorAll<HTMLElement>(
-      "#now-top, #q-head, #q-cards > .qcard, #q-rest li, #now-live > *, #now-notes > *")), draw);
+      "#now-top, #q-head, #q-cards > .qcard, #q-rest li, #now-notes > *")), draw);
   }
   void fillTickets();
   void fillUsage();
   void fillReports();
 }
+
+/** Now's figure strip, from the snapshot, the last PR read and the last limits read. */
+function drawStrip() {
+  if (route.view !== "now" || !snap || !document.getElementById("now-strip")) return;
+  setSection("now-strip", stripHtml(stripFigures({
+    agents: snap.agents,
+    mine: snap.mine,
+    queue: snap.queue,
+    pulls: pullsState(snap.hive),
+    limits: usageCache?.data.limits,
+    now: Date.now(),
+    who,
+  })));
+}
+// A figure that explains itself further down Now scrolls there.
+document.addEventListener("click", (e) => {
+  const fig = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-jump]") : null;
+  if (!fig) return;
+  document.getElementById(fig.dataset.jump === "queue" ? "now-queue" : "now-usage")?.scrollIntoView({ block: "start", behavior: "smooth" });
+});
 
 let usageCache: { at: number; data: UsagePayload } | null = null;
 let usageBusy = false;
@@ -824,6 +839,7 @@ async function fillUsage() {
   }
   if (route.view !== "now" || !usageCache) return;
   setSection("now-usage", usageHtml(usageCache!.data));
+  drawStrip();
   const el = document.getElementById("now-usage");
   if (el) wireUsage(el);
 }
@@ -884,13 +900,6 @@ function queueRest(openCount: number, answered: QueueItem[]): string {
 function unsynced(q: QueueItem): string {
   if (!q.hiveSync?.startsWith("not synced")) return "";
   return `<span class="unsynced" title="${esc(`${q.hiveSync}. Retry: comb precedents sync`)}">not in hive memory</span>`;
-}
-
-function liveItem(n: AgentNode | SessionNode): string {
-  const where = "kind" in n ? (n.project ?? n.cwd.split("/").at(-1) ?? "") : (n.about ?? "");
-  const lines = n.recent.map((r) =>
-    `<li>${r.kind === "tool" ? `<span class="tool">${esc(r.tool ?? "")}</span><code>${esc(r.text)}</code>` : esc(r.text)}</li>`).join("");
-  return `<a class="live-item ${n.activity}" href="${hrefFor(n)}">${cell(n.activity, 30)}<div><div class="who"><b>${esc(n.name)}</b><span>${esc(where)}</span></div><ol>${lines || "<li>Starting</li>"}</ol></div></a>`;
 }
 
 function notesHtml(nodes: (AgentNode | SessionNode)[]): string {
