@@ -427,9 +427,16 @@ that fills with honey while it works; that is the page's one ambient motion.
 - **Start on a ticket** sends Maya one signed message: start a task agent
   for it (D21) with the ticket, her context and where the docs and memory
   are, and do not come back to Greg first. Maya routes; the page does not.
-- **Now is the dashboard:** Waiting on you, Working now, Latest from your
-  sessions (each one's last words), Priority tickets (open P0 and P1, each
-  with Start), Finished work (reports with their first paragraph).
+- **Now is the dashboard:** the headline sentence, then the figure strip
+  (2026-11-19, `src/page/ui/strip.ts`; design doc
+  `docs/design/2026-11-17-now-dashboard.md` §4.1): Working now, Waiting on
+  you (with the oldest item's age), Ready to merge (from the PR report;
+  left out without hive) and Session limit (from `limits.ts`). Each figure
+  has one line of context, and a source that is loading, missing or stale
+  shows "…" or "—" in grey with the reason. Then Waiting on you, Latest from
+  your sessions (each one's last words), Priority tickets (open P0 and P1,
+  each with Start), Finished work (reports with their first paragraph). The
+  strip replaced the headline's subline and the Working now section.
 - **Go carries a model when it starts work (D25, 2026-11-15).** A proposal,
   or a review whose filer named a model, shows "Go · Opus ▾". The caret
   lists the models in `src/models.ts` (opus, sonnet, fable); the filer's

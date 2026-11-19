@@ -13,6 +13,7 @@ import { registerCard } from "./card";
 import { fitCount } from "./fit";
 import { esc } from "./md";
 import { setHtml } from "./patch";
+import type { PullsState } from "./strip";
 
 const HEX = "M11 1.5 20.5 7v10L11 22.5 1.5 17V7z";
 const GAP = 6;
@@ -120,6 +121,14 @@ function legendButton(r: PullsReport): string {
 let data: PullsReport | null = null;
 let fetchedAt = 0;
 let busy = false;
+let failure: string | null = null;
+
+/** The last read, for Now's figure strip: the report, or why there is none yet. */
+export function pullsState(hiveOn: boolean): PullsState {
+  if (!hiveOn) return { state: "off" };
+  if (failure && !data) return { state: "error", message: failure };
+  return data ? { state: "ok", report: data } : { state: "loading" };
+}
 
 /** Fetches /api/pulls at most once a minute (every few seconds while the server refreshes) and redraws. */
 export async function refreshPulls(hiveOn: boolean): Promise<void> {
@@ -136,7 +145,9 @@ export async function refreshPulls(hiveOn: boolean): Promise<void> {
         if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`);
         return body as PullsReport;
       });
+      failure = null;
     } catch (err) {
+      failure = (err as Error).message;
       setHtml(el, `<span class="bp-label">PRs</span><span class="bp-note" tabindex="0">unavailable<span class="tip-src" hidden><span class="tip-title">Couldn't read pull requests</span><span class="tip-line">${esc((err as Error).message)}</span></span></span>`);
       return;
     } finally {
