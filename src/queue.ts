@@ -28,6 +28,14 @@ export type QueueItem = {
   title: string;
   /** What the agent does when Greg says go. One sentence. */
   action: string;
+  /**
+   * What "Not now" changes, when it changes something (a branch stays open, a
+   * pick comes back tomorrow). One sentence. Null: the page says nothing
+   * happens and the agent hears the reason (design doc 2026-11-17, decision 8a).
+   */
+  onNo: string | null;
+  /** What a redirect is likely to be, when the filer can name it ("Say Redis and it ships Redis"). Null: the page's default line. */
+  onRedirect: string | null;
   project: string | null;
   ticket: string | null;
   status: Status;
@@ -51,7 +59,7 @@ export type QueueItem = {
   body: string;
 };
 
-const FIELDS = ["id", "kind", "from", "title", "action", "project", "ticket", "model", "modelWhy", "status", "created", "answered", "note", "hiveSync"] as const;
+const FIELDS = ["id", "kind", "from", "title", "action", "onNo", "onRedirect", "project", "ticket", "model", "modelWhy", "status", "created", "answered", "note", "hiveSync"] as const;
 export { picksModel };
 
 /**
@@ -84,6 +92,8 @@ export function parseItem(text: string): QueueItem {
     from: f.from ?? "",
     title: f.title ?? "",
     action: f.action ?? "",
+    onNo: orNull(f.onNo),
+    onRedirect: orNull(f.onRedirect),
     project: orNull(f.project),
     ticket: orNull(f.ticket),
     model: orNull(f.model),
@@ -112,6 +122,10 @@ export type NewItem = {
   /** One of MODELS, for an item whose go starts work. */
   model?: string | null;
   modelWhy?: string | null;
+  /** What "Not now" changes, if anything. One sentence. */
+  onNo?: string | null;
+  /** What a redirect is likely to say, if the filer can name it. One sentence. */
+  onRedirect?: string | null;
 };
 
 export async function addItem(n: NewItem, home?: string, now = new Date()): Promise<QueueItem> {
@@ -135,6 +149,8 @@ export async function addItem(n: NewItem, home?: string, now = new Date()): Prom
     from: n.from,
     title: oneLine(n.title),
     action: oneLine(n.action),
+    onNo: n.onNo ? oneLine(n.onNo) || null : null,
+    onRedirect: n.onRedirect ? oneLine(n.onRedirect) || null : null,
     project: n.project?.trim() || null,
     ticket: n.ticket?.trim() || null,
     model,

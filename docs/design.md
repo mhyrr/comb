@@ -466,6 +466,23 @@ that fills with honey while it works; that is the page's one ambient motion.
   2026-11-19). The latest gap of an hour or more in that lane is shaded as
   "away", and a sentence on top says who finished, who waits, who still works.
   Without the background list the user's lane is left out, and the page says so.
+- **Each card says what each answer does (2026-11-20, design doc
+  `docs/design/2026-11-17-now-dashboard.md` §4.4, decision 8a).** Three
+  lines under the title: Go is the item's `action`; Not now is the filer's
+  `onNo` (queue_add's optional `on_no`), else comb's line "Nothing happens.
+  <agent> hears your reason."; Redirect is `onRedirect` (`on_redirect`), else
+  "<agent> gets your instruction and works from it." comb's default lines are
+  grey; the filer's own are ink. The core contract asks agents to fill
+  `on_no` when Not now changes something, and `on_redirect` when one redirect
+  is obvious. Items filed before this read both as null.
+- **Keys (decision 9a).** J and K move the current card (outlined); G, N and
+  R move focus to its Go, Not now or Redirect; Enter, the browser's own
+  press of the focused button, sends. One key never answers an item. Keys do
+  nothing while a text field, select or editable area has focus, or with ⌘,
+  Ctrl or Alt held. Clicking a card makes it current. The current card takes
+  focus when J or K lands on it, so new items wait behind the pill (D26)
+  while Greg reads it. Key hints show on the buttons and under the current
+  card, and hide on touch screens and on stages under 620px.
 - **Go carries a model when it starts work (D25, 2026-11-15).** A proposal,
   or a review whose filer named a model, shows "Go · Opus ▾". The caret
   lists the models in `src/models.ts` (opus, sonnet, fable); the filer's
