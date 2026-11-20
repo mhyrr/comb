@@ -292,6 +292,9 @@ describe("turns and tool calls (usage index v2)", () => {
   test("parse: a turn's end and length, each tool call's name, and gh by first word; never the input", async () => {
     const { parseClaude, cliWord } = await import("../usage");
     expect(parseClaude(turnLine("t1", "s1", 2, 90_000).trim(), "f").turn).toEqual({ id: "t1", session: "s1", end: Date.parse(at(2)), ms: 90_000 });
+    // A `claude -p` run (comb's relay, a scripted job) says so: it is never one of the user's sessions.
+    expect(parseClaude(turnLine("t2", "s9", 2, 5_000, { entrypoint: "sdk-cli" }).trim(), "f").turn?.sdk).toBe(true);
+    expect(parseClaude(turnLine("t3", "s1", 2, 5_000, { entrypoint: "cli" }).trim(), "f").turn?.sdk).toBeUndefined();
     const got = parseClaude(toolLine("s1", 1, [
       { type: "text", text: "private words" },
       use("toolu_a", "Bash", { command: "gh pr list --state open" }),
@@ -337,7 +340,7 @@ describe("turns and tool calls (usage index v2)", () => {
     await a.refresh();
     const raw = await Bun.file(cachePath).text();
     expect(raw).not.toContain("secret-project");
-    expect(JSON.parse(raw).v).toBe(2);
+    expect(JSON.parse(raw).v).toBe(3);
 
     const b = index(cachePath);
     await b.refresh();

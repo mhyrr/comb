@@ -273,27 +273,78 @@ a.fig:hover .sv, button.fig:hover .sv { text-decoration: underline; text-decorat
    - wide (stage ≥ 1440px): queue | tickets, reports | usage, with usage at the top of its own column. */
 .dash-grid {
   display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 0 56px; align-items: start;
-  grid-template-areas: "main tickets" "main usage" "main reports";
-  grid-template-rows: auto auto 1fr;
+  grid-template-areas: "main timeline" "main tickets" "main usage" "main reports";
+  grid-template-rows: auto auto auto 1fr;
 }
 .dash-main { grid-area: main; }
 .dash-tickets { grid-area: tickets; }
 .dash-usage { grid-area: usage; }
 .dash-reports { grid-area: reports; }
+.dash-timeline { grid-area: timeline; }
+
+/* What each agent did (design doc §4.2). Honey bars are turns: honey only ever means working. */
+.dash-timeline { container: tl / inline-size; }
+.dash-timeline h2 .aside { margin-left: auto; font-size: var(--t-sm); font-weight: 400; color: var(--graphite); }
+.tl-sum { margin: -4px 0 12px; font-size: var(--t-sm); color: var(--ink-2); }
+.tl-sum b { font-weight: 600; color: var(--ink); }
+.tl-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--t-xs); color: var(--graphite); margin: 0 0 10px; }
+.tl-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.lg-bar { width: 16px; height: 6px; border-radius: 3px; background: var(--honey); }
+.lg-idle { width: 16px; border-top: 1px dashed var(--faint); }
+.lg-ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--ink); box-sizing: border-box; }
+.lg-ring.answered { background: var(--ink); }
+.lg-hex { width: 11px; height: 12px; }
+.lg-hex.done, .tl-hex.done svg { fill: var(--ok); }
+.lg-hex.blocked, .tl-hex.blocked svg { fill: var(--danger); }
+.tl-lane { display: grid; grid-template-columns: 168px minmax(0, 1fr) 116px; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--hair-2); }
+.tl-who { min-width: 0; text-decoration: none; color: inherit; }
+.tl-who b { display: block; font: 400 12.5px/1.35 var(--mono); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-who span { display: block; font-size: var(--t-xs); color: var(--graphite); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+a.tl-who:hover b { text-decoration: underline; text-underline-offset: 3px; }
+.tl-lane.you .tl-who b { font-family: var(--sans); font-weight: 600; font-size: var(--t-sm); }
+.tl-track { position: relative; height: 22px; }
+.tl-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed var(--hair); }
+.tl-away { position: absolute; top: -8px; bottom: -9px; background: var(--sunk); }
+.tl-bar { position: absolute; top: 8px; height: 6px; border-radius: 3px; background: var(--honey); }
+.tl-bar.you { background: var(--faint); }
+.tl-bar.live { background: repeating-linear-gradient(90deg, var(--honey) 0 6px, var(--honey-wash) 6px 8px); }
+.tl-mk { position: absolute; top: 50%; }
+.tl-ring { width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--pane); border: 2px solid var(--ink); box-shadow: 0 0 0 2px var(--pane); box-sizing: border-box; }
+.tl-ring.answered { background: var(--ink); }
+.tl-hex { width: 13px; height: 14px; margin: -7px 0 0 -6.5px; }
+.tl-hex svg { display: block; width: 13px; height: 14px; stroke: var(--pane); stroke-width: 2; }
+.tl-state { text-align: right; font-size: var(--t-sm); line-height: 1.3; min-width: 0; }
+.tl-state b { display: block; font-weight: 600; }
+.tl-state span { color: var(--graphite); font-size: var(--t-xs); }
+.tl-state.working b { color: var(--honey-deep); }
+.tl-state.blocked b { color: var(--danger); }
+.tl-state.quiet b { color: var(--ink-2); font-weight: 500; }
+.tl-axis { display: grid; grid-template-columns: 168px minmax(0, 1fr) 116px; gap: 12px; padding-top: 6px; font: 11px/1 var(--mono); color: var(--graphite); }
+.tl-ticks { position: relative; height: 12px; }
+.tl-ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.tl-ticks span.now { transform: translateX(-100%); color: var(--ink); }
+.tl-foot { font-size: var(--t-xs); color: var(--graphite); margin: 10px 0 0; }
+@container tl (max-width: 720px) {
+  .tl-lane, .tl-axis { grid-template-columns: minmax(0, 1fr) 100px; row-gap: 2px; }
+  .tl-who { grid-column: 1 / -1; display: flex; gap: 8px; align-items: baseline; }
+  .tl-who b { flex: none; max-width: 70%; }
+  .tl-axis > span:first-child { display: none; }
+  .tl-ticks span:nth-child(even):not(.now) { visibility: hidden; }
+}
 .dash-grid > .now-section + .now-section { margin-top: 44px; }
 @container stage (max-width: 980px) {
-  .dash-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "tickets" "usage" "reports"; grid-template-rows: none; }
+  .dash-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "timeline" "tickets" "usage" "reports"; grid-template-rows: none; }
   .dash-tickets { margin-top: 44px; }
 }
 @container stage (min-width: 1440px) {
   .stage-inner.dash { max-width: 1720px; }
   .dash-grid {
     grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr) minmax(320px, 1fr); gap: 0 48px;
-    grid-template-areas: "main tickets usage" "main reports usage";
-    grid-template-rows: auto 1fr;
+    /* The timeline spans the two right columns: 24 hours needs the width (design doc §3). */
+    grid-template-areas: "main timeline timeline" "main tickets usage" "main reports usage";
+    grid-template-rows: auto auto 1fr;
   }
-  /* Beats the later `.now-section + .now-section` margin: usage tops its own column. */
-  .dash-grid > .now-section.dash-usage { margin-top: 0; }
+  /* Tickets and usage both sit under the timeline now, so both keep the section gap and their tops line up. */
 }
 .now-section:empty { display: none; }
 .now-section + .now-section { margin-top: 44px; }

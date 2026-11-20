@@ -56,7 +56,15 @@ const peer = (name: string, text: string) => `<cross-session-message from-name="
 
 function transcript(cwd: string, sessionId: string, lines: Line[]) {
   const path = join(HOME, ".claude", "projects", cwd.replace(/[/.]/g, "-"), `${sessionId}.jsonl`);
-  put(path, lines.map((l) => JSON.stringify({ cwd, sessionId, ...l })).join("\n") + "\n");
+  // Real tool-use ids are unique (toolu_…); the short ones above repeat across sessions, so make them unique here.
+  const tid = (id: unknown) => `toolu_${sessionId.slice(0, 8)}_${String(id)}`;
+  const fix = (l: Line): Line => {
+    const m = l.message as { content?: unknown } | undefined;
+    if (!Array.isArray(m?.content)) return l;
+    return { ...l, message: { ...m, content: m.content.map((b: Record<string, unknown>) =>
+      b.type === "tool_use" ? { ...b, id: tid(b.id) } : b.type === "tool_result" ? { ...b, tool_use_id: tid(b.tool_use_id) } : b) } };
+  };
+  put(path, lines.map((l) => JSON.stringify({ cwd, sessionId, ...fix(l) })).join("\n") + "\n");
 }
 
 // --- agents -------------------------------------------------------------------
@@ -98,13 +106,23 @@ with a recommendation.
 - Follow-ups go to the agent already doing the job.
 - Look across: collisions, duplicated work, shared blockers.`,
   log: [
-    `- ${ago(60 * 26)} started by greg in ${REPOS}`,
+    `- ${ago(60 * 26)} started by greg in ${REPOS} (session ${maya.sessionId.slice(0, 8)}, model opus)`,
     `- ${ago(95)} started acme-api-tk42-rate-limits on TK-42, because the design was agreed yesterday`,
     `- ${ago(40)} filed a decision on the rate-limit store; it changes ops, so it is not mine to make`,
     `- ${ago(12)} answered what is waiting: two reviews and one decision`,
   ],
 });
 transcript(maya.cwd, maya.sessionId, [
+  user(60 * 20, "Morning sweep: what moved overnight, and what is next?"),
+  tool(60 * 20 - 1, "m0", "mcp__hive__list_tickets", { project: "acme-api" }),
+  result(60 * 20 - 1, "m0"),
+  say(60 * 20 - 6, "Nothing moved overnight. TK-42's design is agreed; I'll start it once the load-test numbers are in."),
+  idle(60 * 20 - 6, 6 * 60_000),
+  user(60 * 5 + 2, peer("greg", "Start the docs search too; it is small.")),
+  tool(60 * 5, "m00", "mcp__comb__agent_start", { name: "docs-site-search", charter: "Client-side search …" }),
+  result(60 * 5, "m00"),
+  say(60 * 5 - 1, "Started **docs-site-search**."),
+  idle(60 * 5 - 1, 3 * 60_000),
   user(95, from("greg", "TK-42 is agreed. Get it built.")),
   tool(94, "m1", "mcp__hive__show_ticket", { project: "acme-api", id: "TK-42" }),
   result(94, "m1"),
@@ -170,6 +188,8 @@ transcript(rl.cwd, rl.sessionId, [
   result(69, "r7"),
   tool(42, "r8", "mcp__comb__agent_send", { to: "maya", message: "Counter store: Postgres or Redis?" }),
   result(42, "r8"),
+  idle(42, 51 * 60_000),
+  user(11, peer("maya", "Build against the interface; the store is with the user.")),
   tool(10, "r9", "mcp__comb__agent_start", { name: "acme-api-tk42-review" }),
   result(10, "r9"),
   say(4, "Reviewer started. While it reads, I'm running the load test at 2× peak against the Postgres store."),
@@ -197,7 +217,7 @@ transcript(rv.cwd, rv.sessionId, [
 
 // Finished today, with a report: asleep, still in the tree.
 const ds = { name: "docs-site-search", sessionId: "d4e5f6a7-0000-4000-8000-000000000004", cwd: wt("docs-site", "docs-site-search") };
-agent({
+const dsDir = agent({
   ...ds, parent: "maya", project: "docs-site", worktree: true, startedMin: 60 * 5,
   charter: "# docs-site TK-12: client-side search\n\nDone means: a search box that finds any page by title or heading, under 50 KB added to the bundle, with no server.",
   log: [`- ${ago(300)} started by maya in ${ds.cwd}`, `- ${ago(240)} decided: build the index at build time, because the docs change only on deploy`, `- ${ago(180)} wrote the report and told maya`],
@@ -232,8 +252,11 @@ transcript(ds.cwd, ds.sessionId, [
   say(182, "Done. The report is in reports/, and the branch is ready for review."),
   tool(181, "d1", "mcp__comb__agent_send", { to: "maya", message: "docs-site search is done." }),
   result(181, "d1"),
-  idle(180, 30_000),
+  idle(180, 120 * 60_000),
 ]);
+// The report was written when the work finished, not when this fixture was built.
+const dsDone = new Date(now - 183 * 60_000);
+utimesSync(join(dsDir, "reports", `${day(180)}-search-index.md`), dsDone, dsDone);
 
 // Finished over a week ago: folds into the Finished group.
 const wb = { name: "web-app-bundle-size", sessionId: "e5f6a7b8-0000-4000-8000-000000000005", cwd: wt("web-app", "web-app-bundle-size") };
@@ -252,10 +275,15 @@ transcript(wb.cwd, wb.sessionId, [
 ]);
 const old = new Date(now - 9 * 24 * 3600_000);
 utimesSync(join(wbDir, "log.md"), old, old);
+utimesSync(join(wbDir, "reports", `${day(60 * 24 * 9)}-bundle-size.md`), old, old);
 
 // One of the user's own interactive sessions.
 const mine = { name: "web-app-3f", sessionId: "f6a7b8c9-0000-4000-8000-000000000006", cwd: join(REPOS, "web-app") };
 transcript(mine.cwd, mine.sessionId, [
+  user(60 * 13, "what is left on the web-app settings page?"),
+  idle(60 * 12, 55 * 60_000),
+  user(60 * 9 + 30, "write the test for the settings route"),
+  idle(60 * 7, 140 * 60_000),
   user(30, "the settings page flashes unstyled on first load. find out why"),
   tool(29, "w1", "Grep", { pattern: "settings.css" }),
   result(29, "w1"),
