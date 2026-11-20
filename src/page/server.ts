@@ -16,6 +16,7 @@
  *   GET  /api/inbox/:file       a saved image
  *   GET  /api/usage             plan limits (src/limits.ts) and token counts per AI harness on this machine (src/usage.ts)
  *   GET  /api/pulls             open GitHub PRs in hive's projects (gh, read-only, cached)
+ *   GET  /api/tools             MCP servers and gh the agents used in 7 days, with health from Claude Code's MCP logs
  *   GET  /api/timeline          the last 24 hours, one lane per agent (src/timeline.ts), from the usage index
  *
  * Loopback only, and every request must name this server as its Host (and
@@ -34,7 +35,9 @@ import { resolveCombHome } from "../paths";
 import { formatNightly, runNightly } from "../nightly";
 import { isModel, MODELS } from "../models";
 import { answerMessage, answerModel, listItems, readItem, recordAnswer } from "../queue";
-import { buildTimeline, readAgentLanes } from "../timeline";
+import { buildTimeline, readAgentLanes, sessionOwner } from "../timeline";
+import { McpHealth } from "../mcphealth";
+import { countTools } from "../tools";
 import { transcriptPath } from "../transcript";
 import { readLimits } from "../limits";
 import { UsageIndex, type Roots } from "../usage";
@@ -63,6 +66,8 @@ export type PageOpts = {
   usageRoots?: Roots;
   /** Claude Code's settings.json, read only, to warn when comb's status-line tee is gone (D28). The real one when omitted. */
   claudeSettingsPath?: string;
+  /** Where Claude Code keeps its MCP logs (src/mcphealth.ts). Its cache folders under the real home when omitted. */
+  mcpLogRoots?: string[];
   /** The gh CLI; null means gh is not installed. Found when omitted. */
   ghBin?: string | null;
   /** How old the open-PR cache may get before a read refreshes it. */
@@ -270,6 +275,10 @@ export function startPage(opts: PageOpts = {}) {
     return usageRun;
   }
 
+  // --- MCP health from Claude Code's own connect logs (read only; finished logs cached by path)
+  const health = new McpHealth({ roots: opts.mcpLogRoots });
+  let healthCache: { at: number; report: Awaited<ReturnType<McpHealth["read"]>> } | null = null;
+
   // --- background sessions, so the timeline can tell the user's own from the rest
   // `claude agents --json --all` lists every background session for about a month; read at most once a minute.
   let bgCache: { at: number; ids: Set<string> | null } | null = null;
@@ -447,6 +456,17 @@ export function startPage(opts: PageOpts = {}) {
         // Plan limits are one small file, read fresh each time, and shown even while tokens are still being read.
         const limits = await readLimits({ home, settingsPath: opts.claudeSettingsPath });
         return json(usage.ready ? { ...usage.summary(), limits, error: usageError } : { ready: false, limits, error: usageError });
+      }),
+      "/api/tools": (req) => api(req, async () => {
+        if (!usageRun && Date.now() - usageAt > USAGE_TTL_MS) void refreshUsage();
+        if (!usage.ready && usageRun) await Promise.race([usageRun, Bun.sleep(1500)]);
+        if (!usage.ready) return json({ ready: false, error: usageError });
+        if (!healthCache || Date.now() - healthCache.at > USAGE_TTL_MS) healthCache = { at: Date.now(), report: await health.read() };
+        return json({
+          ready: true,
+          error: usageError,
+          ...countTools({ now: Date.now(), calls: usage.toolCalls(), ownerOf: sessionOwner(await readAgentLanes(home)), health: healthCache.report }),
+        });
       }),
       "/api/timeline": (req) => api(req, async () => {
         if (!usageRun && Date.now() - usageAt > USAGE_TTL_MS) void refreshUsage();

@@ -13,6 +13,7 @@ import { treeOrder } from "./tree";
 import { pullsState, refreshPulls } from "./pulls";
 import { stripFigures, stripHtml } from "./strip";
 import { timelineHtml, type TimelinePayload } from "./timeline";
+import { toolsHtml, type ToolsPayload } from "./tools";
 import { registerCard } from "./card";
 import { nextCell } from "./roving";
 import { parseTicketText, ticketSummary } from "./ticket-text";
@@ -755,6 +756,7 @@ function renderNow() {
         </div>
         <section class="now-section dash-timeline" id="now-timeline" aria-label="What each agent did"></section>
         <section class="now-section dash-tickets" id="now-tickets"></section>
+        <section class="now-section dash-tools" id="now-tools" aria-label="Tools the agents use"></section>
         <aside class="now-section dash-usage usage" id="now-usage" aria-label="Usage"></aside>
         <section class="now-section dash-reports" id="now-reports"></section>
       </div></div></div>`;
@@ -798,6 +800,7 @@ function renderNow() {
       "#now-top, #q-head, #q-cards > .qcard, #q-rest li, #now-notes > *")), draw);
   }
   void fillTimeline();
+  void fillTools();
   void fillTickets();
   void fillUsage();
   void fillReports();
@@ -852,6 +855,29 @@ async function fillTimeline() {
     clock: clockOf,
     hour: (ms) => new Date(ms).toLocaleTimeString([], { hour: "numeric" }),
   }, (name) => `#/agent/${encodeURIComponent(name)}`));
+}
+
+// --- Now: the tools the agents use, with MCP health (design doc §4.3).
+let toolsCache: { at: number; data: ToolsPayload } | null = null;
+let toolsBusy = false;
+/** Reads /api/tools at most once a minute (every few seconds while transcripts are first read). */
+async function fillTools() {
+  const stale = !toolsCache || Date.now() - toolsCache.at > (toolsCache.data.ready ? 60_000 : 3_000);
+  if (stale && !toolsBusy) {
+    toolsBusy = true;
+    try {
+      toolsCache = { at: Date.now(), data: await getJSON<ToolsPayload>("/api/tools") };
+    } catch (err) {
+      toolsCache = { at: Date.now(), data: { ready: false, error: (err as Error).message } };
+    } finally {
+      toolsBusy = false;
+    }
+    if (!toolsCache.data.ready) setTimeout(() => { if (route.view === "now") void fillTools(); }, 3_100);
+  }
+  if (route.view !== "now") return;
+  setSection("now-tools", toolsHtml(toolsCache?.data ?? null, {
+    day: (ms) => new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" }),
+  }));
 }
 
 let usageCache: { at: number; data: UsagePayload } | null = null;
