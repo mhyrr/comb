@@ -466,6 +466,15 @@ that fills with honey while it works; that is the page's one ambient motion.
   2026-11-19). The latest gap of an hour or more in that lane is shaded as
   "away", and a sentence on top says who finished, who waits, who still works.
   Without the background list the user's lane is left out, and the page says so.
+- **Go carries a model when it starts work (D25, 2026-11-15).** A proposal,
+  or a review whose filer named a model, shows "Go · Opus ▾". The caret
+  lists the models in `src/models.ts` (opus, sonnet, fable); the filer's
+  pick is checked, with its one-line reason. The default is the item's
+  `model` (queue_add's optional `model` and `model_why`), else
+  `defaultModel` in `~/.comb/config.json`, else opus. Greg's pick goes back
+  in the answer, `Go (model: fable): <action>`, with a line telling the
+  agent to pass it to agent_start, and is saved in the item and the
+  precedent. Decisions and blockers get a plain Go and refuse a `model`.
 - **Each card says what each answer does (2026-11-20, design doc
   `docs/design/2026-11-17-now-dashboard.md` §4.4, decision 8a).** Three
   lines under the title: Go is the item's `action`; Not now is the filer's
@@ -483,15 +492,6 @@ that fills with honey while it works; that is the page's one ambient motion.
   focus when J or K lands on it, so new items wait behind the pill (D26)
   while Greg reads it. Key hints show on the buttons and under the current
   card, and hide on touch screens and on stages under 620px.
-- **Go carries a model when it starts work (D25, 2026-11-15).** A proposal,
-  or a review whose filer named a model, shows "Go · Opus ▾". The caret
-  lists the models in `src/models.ts` (opus, sonnet, fable); the filer's
-  pick is checked, with its one-line reason. The default is the item's
-  `model` (queue_add's optional `model` and `model_why`), else
-  `defaultModel` in `~/.comb/config.json`, else opus. Greg's pick goes back
-  in the answer, `Go (model: fable): <action>`, with a line telling the
-  agent to pass it to agent_start, and is saved in the item and the
-  precedent. Decisions and blockers get a plain Go and refuse a `model`.
 - **Updates never move what Greg is using (D26, 2026-11-15).** Cards are
   patched by queue id (`src/page/ui/patch.ts`), not rebuilt; a focused field
   is carried into new markup as the same node; time text is not a change;
