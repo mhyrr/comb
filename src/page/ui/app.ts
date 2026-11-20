@@ -9,6 +9,7 @@ import type { FeedEvent } from "../../transcript";
 import type { Activity, AgentNode, Now, SessionNode, Snapshot } from "../state";
 import { esc, md as markdown } from "./md";
 import { admit, holdingPlace, patchList, setHtml } from "./patch";
+import { consequences, isTyping, keyIntent, stepCard } from "./cards";
 import { treeOrder } from "./tree";
 import { pullsState, refreshPulls } from "./pulls";
 import { stripFigures, stripHtml } from "./strip";
@@ -774,6 +775,8 @@ function renderNow() {
   const release = qRelease;
   qRelease = false;
   const { show, waiting } = admit(open.map((q) => q.id), qShown, !release && queueBusy());
+  // The card J/K and G/N/R act on: kept while it is on screen, else the first.
+  qCurrent = stepCard(show, qCurrent, 0);
   qShown = new Set(show);
   qWaiting = waiting.length;
   const byId = new Map(open.map((q) => [q.id, q]));
@@ -878,6 +881,11 @@ async function fillUsage() {
   if (el) wireUsage(el);
 }
 
+/** The card the queue's keys act on (design doc §4.4). */
+let qCurrent: string | null = null;
+/** A key's letter on its button; hidden on touch screens, where there is no keyboard. */
+const keyHint = (k: string) => ` <kbd class="qkey" aria-hidden="true">${k}</kbd>`;
+
 function queueCard(q: QueueItem): string {
   const s = qState.get(q.id) ?? {};
   const k = (part: string) => `data-keep="${esc(`${q.id}:${part}`)}"`;
@@ -887,17 +895,20 @@ function queueCard(q: QueueItem): string {
         <textarea rows="2" ${k("note")} placeholder="${s.mode === "redirect" ? "What should it do instead?" : "Why not, if it helps it learn (optional)"}">${esc(s.text ?? "")}</textarea>
         <div><button type="submit" class="primary" ${k("send")}${s.busy ? " disabled" : ""}>${s.mode === "redirect" ? "Send redirect" : "Say not now"}</button><button type="button" data-qa="cancel" ${k("cancel")}>Cancel</button></div></form>`
     : "";
-  return `<article class="qcard kind-${q.kind}" data-q="${esc(q.id)}">
+  const cur = q.id === qCurrent;
+  return `<article class="qcard kind-${q.kind}${cur ? " cur" : ""}" data-q="${esc(q.id)}" tabindex="-1" ${k("card")}>
     <div class="qmeta"><span class="qkind">${esc(kindName[q.kind] ?? q.kind)}</span><span>from <b>${esc(who(q.from))}</b></span>${where ? `<span>${esc(where)}</span>` : ""}${agoTag(q.created, true)}</div>
     <h3>${esc(q.title)}</h3>
-    <p class="qaction"><span>On go</span>${esc(q.action)}</p>
+    <ul class="qout" aria-label="What each answer does">${consequences(q, who).map((c) =>
+      `<li><b>${c.label}</b><span${c.filer ? "" : ' class="qdefault"'}>${esc(c.text)}</span></li>`).join("")}</ul>
     ${q.body ? (q.body.length > 180 || q.body.includes("\n")
       ? `<div class="qbody prose${s.more ? " open" : ""}">${md(q.body)}</div><button type="button" class="qmore" data-qa="more" ${k("more")}>${s.more ? "Less" : "Read the case"}</button>`
       : `<div class="qbody prose open">${md(q.body)}</div>`) : ""}
     ${form || `<div class="qbtns">
-      ${picksModel(q) ? goPicker(q, s, k) : `<button type="button" class="go" data-qa="go" ${k("go")}${s.busy ? " disabled" : ""}>${s.busy ? "Sending…" : "Go"}</button>`}
-      <button type="button" data-qa="no" ${k("no")}${s.busy ? " disabled" : ""}>Not now</button>
-      <button type="button" data-qa="redirect" ${k("redirect")}${s.busy ? " disabled" : ""}>Redirect</button></div>`}
+      ${picksModel(q) ? goPicker(q, s, k) : `<button type="button" class="go" data-qa="go" ${k("go")}${s.busy ? " disabled" : ""}>${s.busy ? "Sending…" : `Go${keyHint("G")}`}</button>`}
+      <button type="button" data-qa="no" ${k("no")}${s.busy ? " disabled" : ""}>Not now${keyHint("N")}</button>
+      <button type="button" data-qa="redirect" ${k("redirect")}${s.busy ? " disabled" : ""}>Redirect${keyHint("R")}</button></div>
+      ${cur ? `<p class="qkeys" aria-hidden="true"><kbd>J</kbd> <kbd>K</kbd> move · <kbd>G</kbd> <kbd>N</kbd> <kbd>R</kbd> pick a button · <kbd>↵</kbd> sends it</p>` : ""}`}
     ${s.error ? `<p class="problem">${esc(s.error)}</p>` : ""}
   </article>`;
 }
@@ -917,7 +928,7 @@ function goPicker(q: QueueItem, s: QState, k: (part: string) => string): string 
         `<button type="button" role="menuitemradio" aria-checked="${m === pick}" data-qa="model" data-model="${m}" ${k(`model-${m}`)}><b>${esc(modelLabel(m))}</b>${note(m)}</button>`).join("")}</div>`
     : "";
   return `<div class="gosplit">
-    <button type="button" class="go" data-qa="go" ${k("go")}${off}>${s.busy ? "Sending…" : `Go <span class="gom">· ${esc(modelLabel(pick))}</span>`}</button><button type="button" class="go gocaret" data-qa="menu" ${k("menu")} aria-haspopup="menu" aria-expanded="${!!s.menu}" aria-label="Choose the model"${off}>▾</button>
+    <button type="button" class="go" data-qa="go" ${k("go")}${off}>${s.busy ? "Sending…" : `Go <span class="gom">· ${esc(modelLabel(pick))}</span>${keyHint("G")}`}</button><button type="button" class="go gocaret" data-qa="menu" ${k("menu")} aria-haspopup="menu" aria-expanded="${!!s.menu}" aria-label="Choose the model"${off}>▾</button>
     ${menu}</div>`;
 }
 
@@ -1040,6 +1051,7 @@ stage.addEventListener("click", (e) => {
   const card = t.closest<HTMLElement>(".qcard");
   if (!qa || !card) return;
   const id = card.dataset.q!;
+  qCurrent = id; // the card you click is the one the keys act on next
   const s = qState.get(id) ?? {};
   const act = qa.dataset.qa;
   const focusIn = (part: string) => $("q-cards").querySelector<HTMLElement>(`[data-keep="${CSS.escape(`${id}:${part}`)}"]`)?.focus();
@@ -1072,6 +1084,30 @@ function closeMenus(keep?: string): boolean {
 document.addEventListener("click", (e) => {
   const inside = (e.target as HTMLElement).closest<HTMLElement>(".gosplit")?.closest<HTMLElement>(".qcard")?.dataset.q;
   if (closeMenus(inside) && route.view === "now") renderNow();
+});
+// The queue's keys (design doc §4.4, decision 9a). J/K move the current card;
+// G/N/R move focus to its button; Enter is the browser's own press of the
+// focused button. One key never answers. Off while typing, or with a modifier.
+document.addEventListener("keydown", (e) => {
+  if (route.view !== "now" || !pal.hidden || e.defaultPrevented) return;
+  const intent = keyIntent(e, isTyping(document.activeElement as HTMLElement | null));
+  if (!intent) return;
+  const cards = $("q-cards");
+  const ids = Array.from(cards.querySelectorAll<HTMLElement>(":scope > .qcard")).map((c) => c.dataset.q!);
+  if (!ids.length) return;
+  e.preventDefault();
+  if ("move" in intent) {
+    qCurrent = stepCard(ids, qCurrent, intent.move);
+    const el = cards.querySelector<HTMLElement>(`.qcard[data-q="${CSS.escape(qCurrent!)}"]`);
+    // Focus inside the queue also holds new items back (D26), so the card stays put while Greg reads it.
+    el?.focus({ preventScroll: true });
+    renderNow();
+    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    return;
+  }
+  qCurrent = stepCard(ids, qCurrent, 0);
+  renderNow();
+  cards.querySelector<HTMLElement>(`[data-keep="${CSS.escape(`${qCurrent}:${intent.focus}`)}"]`)?.focus();
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || route.view !== "now") return;

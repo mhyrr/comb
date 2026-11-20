@@ -300,13 +300,14 @@ put(join(HOME, "live.json"), JSON.stringify([
 ], null, 2) + "\n");
 
 // --- the queue -----------------------------------------------------------------
-function item(id: string, f: { kind: string; from: string; title: string; action: string; project: string; ticket: string; created: string; model?: string; modelWhy?: string }, body: string) {
+function item(id: string, f: { kind: string; from: string; title: string; action: string; project: string; ticket: string; created: string; model?: string; modelWhy?: string; onNo?: string; onRedirect?: string }, body: string) {
   const head = Object.entries({ id, ...f, status: "open", answered: "", note: "" }).map(([k, v]) => `${k}: ${v}`).join("\n");
   put(join(COMB, "queue", id, "item.md"), `---\n${head}\n---\n\n${body.trim()}\n`);
 }
 item(`${day(40)}-rate-limit-counters-postgres-or-redis`, {
   kind: "decision", from: "maya", title: "Rate-limit counters: Postgres or Redis", project: "acme-api", ticket: "TK-42", created: ago(40),
   action: "I tell acme-api-tk42-rate-limits to ship the store you pick.",
+  onRedirect: "Say Redis and it ships Redis instead.",
 }, `**Recommendation: Postgres.** No new service to run, and the load test shows 4× headroom at today's peak.
 
 | | Postgres advisory locks | Redis |
@@ -319,6 +320,7 @@ Redis wins only if traffic grows past 10× this year.`);
 item(`${day(180)}-review-docs-site-search`, {
   kind: "review", from: "docs-site-search", title: "Review: docs-site client-side search", project: "docs-site", ticket: "TK-12", created: ago(180),
   action: "I mark TK-12 done and hand the branch to you to merge.",
+  onNo: "The branch stays open and I stop here; nothing merges.",
 }, "Branch `worktree-docs-site-search` is green. 412 pages indexed, 38 KB gzipped. All 30 support-log queries find the right page in the top three. Report: `reports/` in my workspace.");
 item(`${day(8)}-start-acme-api-tk-51-rotate-api-keys`, {
   kind: "proposal", from: "maya", title: "Start acme-api TK-51: rotate API keys", project: "acme-api", ticket: "TK-51", created: ago(8),

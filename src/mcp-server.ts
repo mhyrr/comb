@@ -101,11 +101,18 @@ server.registerTool("queue_add", {
       `Omit it to offer the default (${defaultModel}). Never set it on a decision or blocker.`,
     ),
     model_why: z.string().optional().describe("With model: why that model, in one line. E.g. 'Mechanical rename across 40 files; sonnet is enough.'"),
+    on_no: z.string().optional().describe(
+      `What happens if ${who.name} says Not now, in one sentence, when it changes something: 'The branch stays open; I stop here.' ` +
+      "Omit it when nothing happens beyond you hearing the reason; the page says that by default.",
+    ),
+    on_redirect: z.string().optional().describe(
+      "The redirect you expect, if there is an obvious one: 'Say Redis and I ship Redis instead.' Omit it otherwise.",
+    ),
   },
-}, async ({ kind, title, action, why, project, ticket, model, model_why }) => {
+}, async ({ kind, title, action, why, project, ticket, model, model_why, on_no, on_redirect }) => {
   try {
     const from = (await caller()) ?? "unknown";
-    const item = await addItem({ kind, from, title, action, body: why, project, ticket, model, modelWhy: model_why });
+    const item = await addItem({ kind, from, title, action, body: why, project, ticket, model, modelWhy: model_why, onNo: on_no, onRedirect: on_redirect });
     return { content: [{ type: "text" as const, text: `Filed ${item.id}. The answer will come to "${from}" as a message.` }] };
   } catch (err) {
     return fail(err);
