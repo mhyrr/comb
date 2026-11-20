@@ -273,14 +273,27 @@ a.fig:hover .sv, button.fig:hover .sv { text-decoration: underline; text-decorat
    - wide (stage ≥ 1440px): queue | tickets, reports | usage, with usage at the top of its own column. */
 .dash-grid {
   display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 0 56px; align-items: start;
-  grid-template-areas: "main timeline" "main tickets" "main usage" "main reports";
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-areas: "main timeline" "main tickets" "main tools" "main usage" "main reports";
+  grid-template-rows: auto auto auto auto 1fr;
 }
 .dash-main { grid-area: main; }
 .dash-tickets { grid-area: tickets; }
 .dash-usage { grid-area: usage; }
 .dash-reports { grid-area: reports; }
 .dash-timeline { grid-area: timeline; }
+.dash-tools { grid-area: tools; }
+
+/* Tools the agents use (design doc §4.3). Red only for a server failing to connect, said in words too. */
+.dash-tools h2 .aside { margin-left: auto; font-size: var(--t-sm); font-weight: 400; color: var(--graphite); }
+.tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+.tool { position: relative; border: 1px solid var(--hair); border-radius: 10px; padding: 9px 12px; min-width: 0; }
+.tool b { display: block; font-weight: 600; padding-right: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool b code { font-weight: 400; }
+.tool span { display: block; font-size: var(--t-xs); color: var(--graphite); }
+.tool.unused { border-style: dashed; }
+.tool.bad span { color: var(--danger); }
+.tool-dot { position: absolute; top: 14px; right: 12px; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); }
+.tools-foot { font-size: var(--t-xs); color: var(--graphite); margin: 10px 0 0; }
 
 /* What each agent did (design doc §4.2). Honey bars are turns: honey only ever means working. */
 .dash-timeline { container: tl / inline-size; }
@@ -333,7 +346,7 @@ a.tl-who:hover b { text-decoration: underline; text-underline-offset: 3px; }
 }
 .dash-grid > .now-section + .now-section { margin-top: 44px; }
 @container stage (max-width: 980px) {
-  .dash-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "timeline" "tickets" "usage" "reports"; grid-template-rows: none; }
+  .dash-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "timeline" "tickets" "tools" "usage" "reports"; grid-template-rows: none; }
   .dash-tickets { margin-top: 44px; }
 }
 @container stage (min-width: 1440px) {
@@ -341,8 +354,8 @@ a.tl-who:hover b { text-decoration: underline; text-underline-offset: 3px; }
   .dash-grid {
     grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr) minmax(320px, 1fr); gap: 0 48px;
     /* The timeline spans the two right columns: 24 hours needs the width (design doc §3). */
-    grid-template-areas: "main timeline timeline" "main tickets usage" "main reports usage";
-    grid-template-rows: auto auto 1fr;
+    grid-template-areas: "main timeline timeline" "main tickets usage" "main tools usage" "main reports usage";
+    grid-template-rows: auto auto auto 1fr;
   }
   /* Tickets and usage both sit under the timeline now, so both keep the section gap and their tops line up. */
 }

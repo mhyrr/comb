@@ -51,6 +51,9 @@ comb is the work layer: Claude Code background agents, best with hive
 - `src/timeline.ts`: Now's "What each agent did", the last 24 hours per
   agent, from the usage index's turns, the queue and `reports/` (design doc
   `docs/design/2026-11-17-now-dashboard.md` §4.2). `src/page/ui/timeline.ts` draws it.
+- `src/tools.ts`: Now's "Tools the agents use" (design doc §4.3), counts from the
+  usage index; `src/mcphealth.ts` reads MCP health from Claude Code's MCP logs, read
+  only, the one module that knows that format. `src/page/ui/tools.ts` draws it.
 - `src/usage.ts`: token counts from Claude Code, Codex and Gemini CLI's local
   files for the Now tab's usage panel, with a per-file cache in
   `~/.comb/cache/usage.json`. `src/pricing.ts` is its one price table
