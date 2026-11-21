@@ -205,9 +205,13 @@ agent({
 });
 transcript(rv.cwd, rv.sessionId, [
   user(10, "Read your charter.md and checklist.md, then begin."),
-  tool(9, "v1", "Bash", { description: "Diff the branch against main" }),
+  tool(9, "v1", "Bash", { command: "gh pr diff 41", description: "Diff the branch against main" }),
   result(9, "v1"),
   tool(8, "v2", "Read", { file_path: join(rv.cwd, "src", "middleware", "rate-limit.ts") }),
+  result(8, "v2"),
+  tool(7, "v4", "mcp__playwright__browser_navigate", { url: "http://localhost:4000/keys" }),
+  result(7, "v4"),
+  tool(7, "v5", "mcp__playwright__browser_take_screenshot", {}),
   result(8, "v2"),
   say(6, "Two findings:\n\n1. The window key uses the raw API key. Use its id, so keys never land in the counter table.\n2. A 429 has no `X-RateLimit-Remaining`. The design doc promises it."),
   tool(5, "v3", "mcp__comb__agent_send", { to: "acme-api-tk42-rate-limits", message: "Two findings…" }),
@@ -290,6 +294,30 @@ transcript(mine.cwd, mine.sessionId, [
   say(27, "The settings route imports its CSS inside a lazy chunk, so the HTML renders before the stylesheet arrives. Moving the import into the route's layout fixes it; I've made that change and the flash is gone in the preview."),
   idle(27, 140_000),
 ]);
+
+// --- Claude Code's MCP connect logs, one file per server per session start (src/mcphealth.ts) ---
+// Invented servers beside the real ones: "notes" and "billing" stand in for a local and a claude.ai server.
+const mcpLog = (server: string, minAgo: number, lines: Record<string, string>[]) => {
+  const at = ago(minAgo);
+  const file = `${at.replace(/[:.]/g, "-")}.jsonl`;
+  put(join(HOME, "Library", "Caches", "claude-cli-nodejs", REPOS.replace(/[/.]/g, "-"), `mcp-logs-${server}`, file),
+    lines.map((l) => JSON.stringify({ ...l, timestamp: at, sessionId: maya.sessionId, cwd: REPOS })).join("\n") + "\n");
+};
+const connected = [{ debug: "Starting connection with timeout of 30000ms" }, { debug: "Successfully connected (transport: stdio) in 180ms" }];
+for (const server of ["hive", "comb", "playwright", "easel"]) mcpLog(server, 20, connected);
+mcpLog("plugin-github-github", 60 * 72, connected); // fine three days ago
+for (const m of [60 * 48, 60 * 20, 20]) {
+  mcpLog("plugin-github-github", m, [
+    { debug: "HTTP Connection failed after 441ms: Error POSTing to endpoint: bad request: Authorization header is badly formatted" },
+    { error: "Connection failed (400): Error POSTing to endpoint: bad request: Authorization header is badly formatted" },
+  ]);
+}
+mcpLog("notes", 20, [
+  { error: "Connection failed (ECONNREFUSED): ECONNREFUSED: Unable to connect. Is the computer able to access the url?" },
+  { debug: "Transient ECONNREFUSED on initial connect — retry 1/3 in 901ms" },
+]);
+mcpLog("claude-ai-Billing", 20, [{ error: "Connection failed (502): Error POSTing to endpoint: {\"title\":\"Error 502: Bad gateway\"}" }]);
+mcpLog("plugin-marketing-slack", 20, [{ debug: "HTTP Connection failed after 758ms: Unauthorized" }, { debug: "Authentication required for HTTP server" }]);
 
 // --- the roster the fake `claude agents --json` prints -------------------------
 put(join(HOME, "live.json"), JSON.stringify([

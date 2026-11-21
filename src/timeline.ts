@@ -107,15 +107,20 @@ export function spansOf(turns: { s: number; e: number }[], calls: number[], star
   return out;
 }
 
-export function buildTimeline(i: TimelineInput): Timeline {
-  const end = i.now;
-  const start = end - WINDOW_MS;
-  const owner = new Map<string, string>(); // short session id → agent
-  for (const a of i.agents) {
+/** Which agent a session belongs to, by its 8-character short id (log.md has only those). */
+export function sessionOwner(agents: Pick<AgentSessions, "name" | "sessions" | "current">[]): (session: string) => string | undefined {
+  const owner = new Map<string, string>();
+  for (const a of agents) {
     for (const s of a.sessions) owner.set(short(s), a.name);
     if (a.current) owner.set(short(a.current), a.name);
   }
-  const ownerOf = (session: string) => owner.get(short(session));
+  return (session) => owner.get(short(session));
+}
+
+export function buildTimeline(i: TimelineInput): Timeline {
+  const end = i.now;
+  const start = end - WINDOW_MS;
+  const ownerOf = sessionOwner(i.agents);
 
   const turnsBy = new Map<string, { s: number; e: number }[]>();
   const youTurns: { s: number; e: number }[] = [];

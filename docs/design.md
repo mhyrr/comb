@@ -466,6 +466,25 @@ that fills with honey while it works; that is the page's one ambient motion.
   2026-11-19). The latest gap of an hour or more in that lane is shaded as
   "away", and a sentence on top says who finished, who waits, who still works.
   Without the background list the user's lane is left out, and the page says so.
+- **Tools the agents use (2026-11-20, `src/tools.ts`, `src/mcphealth.ts`,
+  `src/page/ui/tools.ts`; design doc §4.3).** A grid of the MCP servers and
+  CLIs comb's agents called in the last 7 days, each with how many agents and
+  calls. Counts come from the usage index's tool calls, only from sessions
+  that belong to comb agents (decision 6a); `gh` counts by the first word of a
+  Bash command and nothing else of it. Health comes from the log Claude Code
+  writes at each connect, `~/Library/Caches/claude-cli-nodejs/<project>/mcp-logs-<server>/<ISO>.jsonl`
+  (or `~/.cache/…` on Linux): read only, nothing spawned (decision 7a). The
+  last "Successfully connected" or "Connection failed (<code>)" line in a
+  server's newest log is its state, shown as a short reason ("400 · bad
+  Authorization header", "refused", "502 · bad gateway"), never the raw
+  message. "Authentication required" is a sign-in nobody gave, not a failure.
+  "Since" walks back through older logs until one connected (up to 400, then
+  "since at least"); finished logs are cached by path. A failing server shows
+  even when no agent used it; connected but unused servers, and ones waiting
+  for a sign-in, are named in the footnote. Logs older than two days say
+  nothing. Without any logs the panel says health is unknown and still counts.
+  The log format is undocumented, so `src/mcphealth.ts` is the one module
+  that knows it.
 - **Go carries a model when it starts work (D25, 2026-11-15).** A proposal,
   or a review whose filer named a model, shows "Go · Opus ▾". The caret
   lists the models in `src/models.ts` (opus, sonnet, fable); the filer's
