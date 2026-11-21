@@ -494,6 +494,23 @@ that fills with honey while it works; that is the page's one ambient motion.
   in the answer, `Go (model: fable): <action>`, with a line telling the
   agent to pass it to agent_start, and is saved in the item and the
   precedent. Decisions and blockers get a plain Go and refuse a `model`.
+- **Each card says what each answer does (2026-11-20, design doc
+  `docs/design/2026-11-17-now-dashboard.md` §4.4, decision 8a).** Three
+  lines under the title: Go is the item's `action`; Not now is the filer's
+  `onNo` (queue_add's optional `on_no`), else comb's line "Nothing happens.
+  <agent> hears your reason."; Redirect is `onRedirect` (`on_redirect`), else
+  "<agent> gets your instruction and works from it." comb's default lines are
+  grey; the filer's own are ink. The core contract asks agents to fill
+  `on_no` when Not now changes something, and `on_redirect` when one redirect
+  is obvious. Items filed before this read both as null.
+- **Keys (decision 9a).** J and K move the current card (outlined); G, N and
+  R move focus to its Go, Not now or Redirect; Enter, the browser's own
+  press of the focused button, sends. One key never answers an item. Keys do
+  nothing while a text field, select or editable area has focus, or with ⌘,
+  Ctrl or Alt held. Clicking a card makes it current. The current card takes
+  focus when J or K lands on it, so new items wait behind the pill (D26)
+  while Greg reads it. Key hints show on the buttons and under the current
+  card, and hide on touch screens and on stages under 620px.
 - **Updates never move what Greg is using (D26, 2026-11-15).** Cards are
   patched by queue id (`src/page/ui/patch.ts`), not rebuilt; a focused field
   is carried into new markup as the same node; time text is not a change;

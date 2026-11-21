@@ -391,17 +391,33 @@ a.tl-who:hover b { text-decoration: underline; text-underline-offset: 3px; }
 .qkind { font-weight: 650; color: var(--ink); }
 .kind-blocker .qkind { color: var(--danger); }
 .qcard h3 { font-size: var(--t-xl); line-height: 1.25; font-weight: 650; letter-spacing: -0.02em; margin: 10px 0 10px; text-wrap: balance; }
-.qaction { margin: 0; color: var(--ink-2); line-height: 1.55; }
-.qaction span { font-weight: 650; color: var(--ink); margin-right: 8px; }
+/* What each answer does (design doc §4.4). comb's default lines are quieter than the filer's own. */
+.qout { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; color: var(--ink-2); line-height: 1.5; }
+.qout li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; }
+.qout b { font-weight: 650; color: var(--ink); font-size: var(--t-sm); padding-top: 1px; }
+.qout .qdefault { color: var(--graphite); }
+/* The current card, the one the keys act on. */
+.qcard:focus { outline: none; }
+.qcard.cur { border-color: var(--ink-2); box-shadow: 0 0 0 1px var(--ink-2); }
+.qkey { margin-left: 8px; font: 500 11px/1 var(--mono); border: 1px solid currentColor; border-radius: 4px; padding: 2px 4px; opacity: 0.55; }
+.qkeys { margin: 12px 0 0; font-size: var(--t-xs); color: var(--graphite); }
+.qkeys kbd { font: 500 11px/1 var(--mono); border: 1px solid var(--hair); border-radius: 4px; padding: 2px 4px; color: var(--ink-2); }
+/* Too narrow for the hints beside the buttons. */
+@container stage (max-width: 620px) { .qkey, .qkeys { display: none; } }
+/* No keyboard on a touch screen: no key hints, and no current-card outline. */
+@media (hover: none) {
+  .qkey, .qkeys { display: none; }
+  .qcard.cur { border-color: var(--hair); box-shadow: none; }
+}
 .qbody { margin-top: 14px; color: var(--ink-2); font-size: var(--t-md); line-height: 1.6; max-height: 4.8em; overflow: hidden;
   mask-image: linear-gradient(to bottom, #000 40%, transparent); -webkit-mask-image: linear-gradient(to bottom, #000 40%, transparent); }
 .qbody.open { max-height: none; mask-image: none; -webkit-mask-image: none; }
 .qmore { background: none; border: 0; padding: 4px 0 0; color: var(--graphite); font-size: var(--t-sm); }
 .qmore:hover { color: var(--ink); }
-.qbtns { display: flex; gap: 8px; margin-top: 18px; }
+.qbtns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .qbtns button, .qnote button {
   border: 1px solid var(--hair); background: var(--pane); color: var(--ink-2);
-  border-radius: 10px; padding: 8px 16px; font-weight: 600; font-size: var(--t-md);
+  border-radius: 10px; padding: 8px 16px; font-weight: 600; font-size: var(--t-md); white-space: nowrap;
 }
 .qbtns button:hover, .qnote button:hover { border-color: var(--faint); color: var(--ink); }
 .qbtns .go, .qnote .primary { background: var(--ink); color: var(--pane); border-color: var(--ink); padding: 8px 26px; }

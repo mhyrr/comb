@@ -142,7 +142,10 @@ questions asked.
   with what you will do on "go" and your case for it. ${U} answers on the
   page with Go, Not now or Redirect, and the answer comes back to you as a
   message. Do not bury asks in a report or a long reply; ${u} acts on the
-  queue.
+  queue. When "Not now" changes something (a branch stays open, the work
+  stops, a pick comes back tomorrow), say so in \`on_no\`; when there is an
+  obvious redirect, name it in \`on_redirect\`. The card shows ${u} what
+  each answer does.
 - When you wait on an answer, keep working on what does not depend on it.
 - For a second opinion, use a sub-agent.${hive ? ` Council needs ${u}'s yes.` : ""}
 
