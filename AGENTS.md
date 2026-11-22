@@ -33,11 +33,12 @@ comb is the work layer: Claude Code background agents, best with hive
 
 - `src/cli.ts`: the `comb` command, including `comb page`.
 - `src/mcp-server.ts`: comb-mcp (`agent_list`, `agent_send`, `agent_start`,
-  `queue_add`).
+  `queue_add`, `queue_withdraw`).
 - `src/queue.ts`: the queue (`~/.comb/queue/`) and precedents, which it also
   queues in hive memory (D13; `comb precedents sync` backfills).
 - `src/nightly.ts`: files hive's nightly picks (and asks, with `nightlyAsks`) into the queue
-  (`comb nightly`, and hourly from the page server).
+  (`comb nightly`, and hourly from the page server), after its sweep withdraws
+  open cards whose work is done or taken (D30).
 - `src/agents.ts`: workspaces, the start path, the core contract.
 - `src/claude.ts`: the Claude Code adapter (`--bg`, `claude agents --json`).
 - `src/hive.ts`: the hive interface, including the hive MCP client the page

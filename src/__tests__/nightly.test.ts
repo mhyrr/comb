@@ -23,11 +23,12 @@ const NOW = new Date(2026, 10, 13, 12, 0, 0);
 const TODAY = localDate(NOW);
 const daysAgo = (n: number) => new Date(NOW.getTime() - n * 24 * 3600_000).toISOString();
 
-async function ticket(project: string, id: string, status = "open", title = `${project} ${id} title`) {
+async function ticket(project: string, id: string, status = "open", title = `${project} ${id} title`, updated?: string) {
   const dir = join(hiveHome, "projects", project, "tickets");
   await mkdir(dir, { recursive: true });
-  await writeFile(join(hiveHome, "projects", project, "config.md"), `path: /tmp/${project}\n`);
-  await writeFile(join(dir, `${id}.md`), `---\nid: ${id}\ntitle: ${title}\nstatus: ${status}\ntype: bug\npriority: 2\n---\n\nBody.\n`);
+  await writeFile(join(hiveHome, "projects", project, "config.md"), `path: /repos/${project}\n`);
+  const up = updated ? `updated: ${updated}\n` : "";
+  await writeFile(join(dir, `${id}.md`), `---\nid: ${id}\ntitle: ${title}\nstatus: ${status}\ntype: bug\npriority: 2\n${up}---\n\nBody.\n`);
 }
 
 type Sel = { projectId: string; ticketId: string; selectedAt: string; rationale?: string; disposition?: string };
@@ -145,7 +146,7 @@ test("a re-pick of the same ticket, or a repeated ask, does not come back for a 
   await picks([{ projectId: "mobile-app", ticketId: "TK-042", selectedAt: daysAgo(0.3) }]);
   await briefing(TODAY, ["**mobile-app:** decide the release version scheme."]);
   const first = await runNightly({ home, hiveHome, asks: true, now: NOW });
-  for (const i of await listItems(home, 0, NOW.getTime())) await recordAnswer(i.id, "no", "Not now.", home);
+  for (const i of await listItems(home, 0, NOW.getTime())) await recordAnswer(i.id, "no", "Not now.", home, NOW);
 
   // hive re-selects the same ticket with a new selectedAt; tomorrow's briefing repeats the ask.
   const tomorrow = new Date(NOW.getTime() + 24 * 3600_000);
@@ -156,10 +157,15 @@ test("a re-pick of the same ticket, or a repeated ask, does not come back for a 
   expect(again.filed).toEqual([]);
   expect(again.skipped.map((s) => s.reason)).toEqual([expect.stringMatching(/^already filed/), expect.stringMatching(/^already filed/)]);
 
-  // After a week, a ticket hive still picks is asked again.
+  // After a week, Greg's Not now still holds while the ticket is unchanged (TK-008)...
   const later = new Date(NOW.getTime() + 8 * 24 * 3600_000);
   await picks([{ projectId: "mobile-app", ticketId: "TK-042", selectedAt: new Date(later.getTime() - 3600_000).toISOString() }]);
-  expect((await runNightly({ home, hiveHome, asks: true, now: later })).filed.map((f) => f.label)).toEqual(["mobile-app TK-042"]);
+  const held = await runNightly({ home, hiveHome, now: later });
+  expect(held.filed).toEqual([]);
+  expect(held.skipped[0]!.reason).toMatch(/^Greg said Not now on \d{4}-\d{2}-\d{2} \(.+\), and the ticket has not changed since$/);
+  // ...and once the ticket changes after his answer, hive's pick is asked again.
+  await ticket("mobile-app", "TK-042", "open", undefined, new Date(later.getTime() - 2 * 3600_000).toISOString());
+  expect((await runNightly({ home, hiveHome, now: later })).filed.map((f) => f.label)).toEqual(["mobile-app TK-042"]);
 });
 
 test("an open queue item on the same ticket blocks a pick; the same id in another project does not", async () => {

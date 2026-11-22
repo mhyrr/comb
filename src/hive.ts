@@ -419,7 +419,8 @@ export function parseAttention(briefing: string): string[] {
   return items.filter(Boolean);
 }
 
-export type TicketFile = { status: string; title: string; priority: string | null; type: string | null };
+/** `updated` is the front matter's ISO time, null when the file has none. */
+export type TicketFile = { status: string; title: string; priority: string | null; type: string | null; updated: string | null };
 
 /** A ticket's front matter from hive's ticket file, or null if hive has no such ticket. */
 export function readTicketFile(project: string, id: string, hiveHome: string = resolveHiveHome()): TicketFile | null {
@@ -432,5 +433,5 @@ export function readTicketFile(project: string, id: string, hiveHome: string = r
   }
   const head = raw.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
   const field = (k: string) => head.match(new RegExp(`^${k}:\\s*(.*)$`, "m"))?.[1]?.trim() || null;
-  return { status: field("status") ?? "open", title: field("title") ?? "", priority: field("priority"), type: field("type") };
+  return { status: field("status") ?? "open", title: field("title") ?? "", priority: field("priority"), type: field("type"), updated: field("updated") };
 }

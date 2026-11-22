@@ -9,7 +9,7 @@ import type { FeedEvent } from "../../transcript";
 import type { Activity, AgentNode, Now, SessionNode, Snapshot } from "../state";
 import { esc, md as markdown } from "./md";
 import { admit, holdingPlace, patchList, setHtml } from "./patch";
-import { consequences, isTyping, keyIntent, stepCard } from "./cards";
+import { consequences, isTyping, keyIntent, splitQueue, stepCard } from "./cards";
 import { treeOrder } from "./tree";
 import { pullsState, refreshPulls } from "./pulls";
 import { stripFigures, stripHtml } from "./strip";
@@ -765,9 +765,12 @@ function renderNow() {
     dashScroller()?.addEventListener("scroll", () => { if (qWaiting && !queueBusy()) renderNow(); }, { passive: true });
     // Letting go of the queue (blur, closing a form) is the other quiet moment.
     $("now-queue").addEventListener("focusout", () => setTimeout(() => { if (qWaiting && !queueBusy()) renderNow(); }, 0));
+    // The Withdrawn fold keeps its state across re-renders. "toggle" does not bubble, so capture it.
+    $("q-rest").addEventListener("toggle", (e) => {
+      if ((e.target as HTMLElement).classList?.contains("withdrawn")) wdOpen = (e.target as HTMLDetailsElement).open;
+    }, true);
   }
-  const open = snap.queue.filter((q) => q.status === "open");
-  const answered = snap.queue.filter((q) => q.status !== "open");
+  const { open, answered, withdrawn } = splitQueue(snap.queue);
   const nodes = allNodes();
   const working = nodes.filter((n) => n.activity === "working");
 
@@ -791,7 +794,7 @@ function renderNow() {
     $("q-new").hidden = !waiting.length;
     if (waiting.length) setSection("q-new", `${count(waiting.length)} new, show`);
     patchList($("q-cards"), show.map((id) => ({ key: id, html: queueCard(byId.get(id)!) })));
-    setSection("q-rest", queueRest(open.length, answered));
+    setSection("q-rest", queueRest(open.length, answered, withdrawn));
     setSection("now-notes", notesHtml(nodes));
   };
   if (release) {
@@ -958,13 +961,28 @@ function goPicker(q: QueueItem, s: QState, k: (part: string) => string): string 
     ${menu}</div>`;
 }
 
-function queueRest(openCount: number, answered: QueueItem[]): string {
-  if (!openCount && !answered.length) {
+/** Whether Greg has the Withdrawn fold open. */
+let wdOpen = false;
+
+function queueRest(openCount: number, answered: QueueItem[], withdrawn: QueueItem[]): string {
+  if (!openCount && !answered.length && !withdrawn.length) {
     return `<p class="quiet">Nothing. When an agent needs your yes, it lands here with its case and one-click answers.</p>`;
   }
-  return `${openCount ? "" : `<p class="quiet">All answered.</p>`}
+  return `${openCount ? "" : `<p class="quiet">${answered.length || !withdrawn.length ? "All answered." : "Nothing waits."}</p>`}
     ${answered.length ? `<ul class="answered">${answered.map((q) =>
-      `<li><span class="v v-${q.status}">${verdict[q.status]}</span><span class="t">${esc(q.title)}</span>${unsynced(q)}<span class="w">${esc(who(q.from))} ${agoTag(q.answered, true)}</span></li>`).join("")}</ul>` : ""}`;
+      `<li><span class="v v-${q.status}">${verdict[q.status]}</span><span class="t">${esc(q.title)}</span>${unsynced(q)}<span class="w">${esc(who(q.from))} ${agoTag(q.answered, true)}</span></li>`).join("")}</ul>` : ""}
+    ${withdrawnFold(withdrawn)}`;
+}
+
+/**
+ * Items taken away without an answer (TK-008), folded under one line so Greg
+ * can see it happened and why. Not answers: no verdict, no precedent.
+ */
+function withdrawnFold(items: QueueItem[]): string {
+  if (!items.length) return "";
+  const by = (q: QueueItem) => (q.withdrawnBy === "sweep" ? "comb's sweep" : who(q.withdrawnBy ?? q.from));
+  return `<details class="withdrawn"${wdOpen ? " open" : ""}><summary>Withdrawn <span>${items.length}</span></summary>
+    <ul>${items.map((q) => `<li data-id="${esc(q.id)}"><span class="t">${esc(q.title)}</span><span class="w">${esc(by(q))} ${agoTag(q.withdrawn, true)}</span><span class="why">${esc(q.withdrawnWhy ?? "no reason recorded")}</span></li>`).join("")}</ul></details>`;
 }
 
 /** An answer whose precedent did not reach hive memory (D13): say so, with why and the retry. */

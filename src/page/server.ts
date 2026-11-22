@@ -152,7 +152,7 @@ export function startPage(opts: PageOpts = {}) {
       filing = true;
       try {
         const r = await runNightly({ home, hiveHome: setup.home });
-        if (r.filed.length || r.deferred.length) console.log(`${new Date().toISOString()} ${formatNightly(r)}`);
+        if (r.filed.length || r.deferred.length || r.withdrawn.length) console.log(`${new Date().toISOString()} ${formatNightly(r)}`);
       } catch (err) {
         console.error("comb page: hive nightly filing failed:", err);
       } finally {
@@ -372,6 +372,7 @@ export function startPage(opts: PageOpts = {}) {
           if (answer === "redirect" && !note) return json({ error: "Say what to do instead." }, 400);
           if (body?.model != null && !isModel(body.model)) return json({ error: `Pick a model: ${MODELS.join(", ")}.` }, 400);
           const item = await readItem(req.params.id, home);
+          if (item.status === "withdrawn") return json({ error: `Withdrawn: ${item.withdrawnWhy ?? "no reason recorded"}.` }, 409);
           if (item.status !== "open") return json({ error: `Already answered (${item.status}).` }, 409);
           const model = answerModel(item, answer, isModel(body?.model) ? body.model : null, readCombConfig(home).defaultModel);
           // Deliver first: an answer that never reached the agent leaves the item open.

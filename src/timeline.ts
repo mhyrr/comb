@@ -6,7 +6,7 @@
  * Where each mark comes from:
  *   bar       a finished turn, from Claude Code's `turn_duration` lines (the usage index)
  *   open bar  the current turn: tool calls and model calls after the session's last turn end
- *   asked     a queue item the agent filed (`created`); answered when it has `answered`
+ *   asked     a queue item the agent filed (`created`); answered when it has `answered` (or `withdrawn`)
  *   blocked   a queue item of kind blocker
  *   finished  a file written to the agent's reports/ (its mtime)
  *
@@ -81,7 +81,7 @@ export type TimelineInput = {
   activity: { session: string; ts: number }[];
   /** Tool calls, for the count on each bar. */
   calls: { session: string; ts: number }[];
-  queue: Pick<QueueItem, "id" | "kind" | "from" | "title" | "created" | "answered">[];
+  queue: (Pick<QueueItem, "id" | "kind" | "from" | "title" | "created" | "answered"> & { withdrawn?: string | null })[];
   /** Session ids Claude Code lists as background; null when that list could not be read. */
   background: Set<string> | null;
 };
@@ -149,7 +149,9 @@ export function buildTimeline(i: TimelineInput): Timeline {
       if (q.from !== a.name) continue;
       const at = Date.parse(q.created);
       if (!(at >= start && at <= end)) continue;
-      const answeredAt = q.answered ? Date.parse(q.answered) : NaN;
+      // A withdrawn ask (TK-008) is closed too: its ring fills at the withdrawal.
+      const closed = q.answered ?? q.withdrawn;
+      const answeredAt = closed ? Date.parse(closed) : NaN;
       marks.push({ kind: q.kind === "blocker" ? "blocked" : "asked", at, answeredAt: Number.isFinite(answeredAt) ? answeredAt : null, title: q.title, id: q.id });
     }
     for (const r of a.reports) if (r.at >= start && r.at <= end) marks.push({ kind: "finished", at: r.at, file: r.file });

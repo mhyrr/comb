@@ -18,7 +18,8 @@ import { getCombPaths } from "./paths";
 export const KINDS = ["proposal", "decision", "review", "blocker"] as const;
 export type Kind = (typeof KINDS)[number];
 export type Answer = "go" | "no" | "redirect";
-export type Status = "open" | "approved" | "declined" | "redirected";
+export type Status = "open" | "approved" | "declined" | "redirected" | "withdrawn";
+const STATUSES: readonly Status[] = ["open", "approved", "declined", "redirected", "withdrawn"];
 
 export type QueueItem = {
   id: string;
@@ -55,11 +56,21 @@ export type QueueItem = {
    * or "not synced: <why>" for the page to flag. Null without hive.
    */
   hiveSync: string | null;
+  /**
+   * When the item left the queue without an answer from Greg (TK-008): the
+   * sweep found the work done or taken, or an agent withdrew it. A withdrawn
+   * item is never a precedent and never reaches hive.
+   */
+  withdrawn: string | null;
+  /** Who withdrew it: "sweep", or the agent's name. */
+  withdrawnBy: string | null;
+  /** Why, in one line. */
+  withdrawnWhy: string | null;
   /** The agent's case: why, its recommendation, the evidence. Markdown. */
   body: string;
 };
 
-const FIELDS = ["id", "kind", "from", "title", "action", "onNo", "onRedirect", "project", "ticket", "model", "modelWhy", "status", "created", "answered", "note", "hiveSync"] as const;
+const FIELDS = ["id", "kind", "from", "title", "action", "onNo", "onRedirect", "project", "ticket", "model", "modelWhy", "status", "created", "answered", "note", "hiveSync", "withdrawn", "withdrawnBy", "withdrawnWhy"] as const;
 export { picksModel };
 
 /**
@@ -98,11 +109,14 @@ export function parseItem(text: string): QueueItem {
     ticket: orNull(f.ticket),
     model: orNull(f.model),
     modelWhy: orNull(f.modelWhy),
-    status: (["open", "approved", "declined", "redirected"].includes(f.status ?? "") ? f.status : "open") as Status,
+    status: (STATUSES as readonly string[]).includes(f.status ?? "") ? (f.status as Status) : "open",
     created: f.created ?? "",
     answered: orNull(f.answered),
     note: orNull(f.note),
     hiveSync: orNull(f.hiveSync),
+    withdrawn: orNull(f.withdrawn),
+    withdrawnBy: orNull(f.withdrawnBy),
+    withdrawnWhy: orNull(f.withdrawnWhy),
     body: m[2]!.trim(),
   };
 }
@@ -160,6 +174,9 @@ export async function addItem(n: NewItem, home?: string, now = new Date()): Prom
     answered: null,
     note: null,
     hiveSync: null,
+    withdrawn: null,
+    withdrawnBy: null,
+    withdrawnWhy: null,
     body: n.body?.trim() ?? "",
   };
   await mkdir(join(queueDir, id, "evidence"), { recursive: true });
@@ -167,7 +184,10 @@ export async function addItem(n: NewItem, home?: string, now = new Date()): Prom
   return item;
 }
 
-/** Open items, then answered ones from the last `answeredWithinMs`, newest first. */
+/** When an item left the open queue: Greg's answer, or its withdrawal. */
+export const closedAt = (i: Pick<QueueItem, "answered" | "withdrawn">): string | null => i.answered ?? i.withdrawn;
+
+/** Open items, then answered and withdrawn ones from the last `answeredWithinMs`, newest first. */
 export async function listItems(home?: string, answeredWithinMs = 24 * 3600_000, now = Date.now()): Promise<QueueItem[]> {
   const { queueDir } = getCombPaths(home);
   if (!existsSync(queueDir)) return [];
@@ -179,7 +199,8 @@ export async function listItems(home?: string, answeredWithinMs = 24 * 3600_000,
     try {
       const item = parseItem(await readFile(path, "utf-8"));
       if (!item.id) item.id = e.name;
-      if (item.status === "open" || (item.answered && now - Date.parse(item.answered) < answeredWithinMs)) out.push(item);
+      const closed = closedAt(item);
+      if (item.status === "open" || (closed && now - Date.parse(closed) < answeredWithinMs)) out.push(item);
     } catch {
       continue; // intentional: a hand-mangled item is skipped, not fatal to the page
     }
@@ -192,6 +213,25 @@ export async function readItem(id: string, home?: string): Promise<QueueItem> {
   const path = join(getCombPaths(home).queueDir, id, "item.md");
   if (!existsSync(path)) throw new UsageError("No such queue item.");
   return parseItem(await readFile(path, "utf-8"));
+}
+
+/**
+ * Takes an open item out of the queue without an answer from Greg (TK-008):
+ * the work is done, or it was taken elsewhere. It writes no precedent and
+ * sends nothing to hive or to the filer. The page folds it into "Withdrawn".
+ */
+export async function withdrawItem(id: string, reason: string, by: string, home?: string, now = new Date()): Promise<QueueItem> {
+  const why = oneLine(reason);
+  if (!why) throw new UsageError("Give the reason it is withdrawn, in one line.");
+  const item = await readItem(id, home);
+  if (item.status === "withdrawn") throw new UsageError(`Already withdrawn: ${item.withdrawnWhy ?? "no reason recorded"}.`);
+  if (item.status !== "open") throw new UsageError(`Greg already answered it (${item.status}), so it stays.`);
+  item.status = "withdrawn";
+  item.withdrawn = now.toISOString();
+  item.withdrawnBy = oneLine(by) || "unknown";
+  item.withdrawnWhy = why.slice(0, 300);
+  await writeFile(join(getCombPaths(home).queueDir, id, "item.md"), serializeItem(item), "utf-8");
+  return item;
 }
 
 /**
@@ -232,7 +272,9 @@ export async function recordAnswer(
   hive: PrecedentSink | null = null,
 ): Promise<QueueItem> {
   const item = await readItem(id, home);
-  if (item.status !== "open") throw new UsageError(`Already answered (${item.status}).`);
+  // A withdrawal is not an answer: Greg's answer, if it raced the sweep, still counts and replaces it.
+  if (item.status !== "open" && item.status !== "withdrawn") throw new UsageError(`Already answered (${item.status}).`);
+  item.withdrawn = item.withdrawnBy = item.withdrawnWhy = null;
   const paths = getCombPaths(home);
   const proposedModel = item.model;
   item.status = answer === "go" ? "approved" : answer === "no" ? "declined" : "redirected";

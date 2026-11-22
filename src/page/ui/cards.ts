@@ -22,6 +22,18 @@ export function consequences(q: Pick<QueueItem, "action" | "onNo" | "onRedirect"
   ];
 }
 
+/**
+ * The queue's three lists: open cards, Greg's answers, and withdrawn items
+ * (TK-008). A withdrawal is not an answer, so it never shows as one.
+ */
+export function splitQueue<T extends Pick<QueueItem, "status">>(queue: T[]): { open: T[]; answered: T[]; withdrawn: T[] } {
+  return {
+    open: queue.filter((q) => q.status === "open"),
+    answered: queue.filter((q) => q.status !== "open" && q.status !== "withdrawn"),
+    withdrawn: queue.filter((q) => q.status === "withdrawn"),
+  };
+}
+
 export type KeyIntent = { move: 1 | -1 } | { focus: "go" | "no" | "redirect" } | null;
 
 /** What a key press means on the queue. Null: not the queue's key, so the page does nothing. */

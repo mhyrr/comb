@@ -127,7 +127,10 @@ describe("timeline from the fixture world", () => {
     const maya = t.lanes[0]!;
     expect(maya.name).toBe("maya");
     expect(maya.spans.length).toBe(5); // the morning sweep, starting docs search, TK-42, the store question, "what's waiting"
-    expect(maya.marks.filter((m) => m.kind === "asked").length).toBe(2); // the decision and the proposal she filed
+    expect(maya.marks.filter((m) => m.kind === "asked").length).toBe(3); // the decision and the proposal she filed, and the pick the sweep withdrew
+    // A withdrawn ask is closed (TK-008): its ring fills at the withdrawal, not left waiting.
+    const gone = maya.marks.find((m) => m.kind === "asked" && m.id.includes("docs-site-tk-15"));
+    expect(gone && gone.kind === "asked" ? gone.answeredAt : null).toBeNumber();
   });
 
   test("docs-site-search: one two-hour turn ending when its log says it wrote the report, then the review it asked for", () => {
