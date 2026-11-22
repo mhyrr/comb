@@ -832,7 +832,11 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   one "Withdrawn N" line under the answers, each with its reason, for 24
   hours after the withdrawal (the answers' window, by `withdrawn` time);
   after that the page drops them and item.md stays on disk. Greg's answer
-  that races the sweep still counts and clears the withdrawal. A Not now on
+  that races the sweep still counts and clears the withdrawal. No withdrawal
+  is quiet: when the sweep withdraws anything, Maya gets one message (through
+  comb's own delivery, sendToAgent) listing each card and its reason; a run that
+  withdraws nothing sends nothing, and a failed delivery is logged and shown in
+  the run's report. A Not now on
   a pick now holds until the ticket's `updated` is later than the answer,
   with no 7-day expiry: matreas TK-479 was declined on 2026-11-15 and came
   back on 2026-11-22.

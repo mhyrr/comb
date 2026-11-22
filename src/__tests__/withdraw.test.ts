@@ -254,6 +254,53 @@ test("cards without a project, a ticket or a hive ticket file are left alone", a
   expect(await status(missing.id)).toBe("open");
 });
 
+// --- Maya hears of every withdrawal -------------------------------------------
+
+test("the sweep tells Maya once, listing each card and its reason; nothing withdrawn, nothing sent", async () => {
+  const sent: string[] = [];
+  const notify = async (m: string) => { sent.push(m); };
+  await ticket("acme-api", "TK-1", "closed", hoursAgo(1));
+  await ticket("acme-api", "TK-2", "in_progress", hoursAgo(1));
+  await ticket("acme-api", "TK-3", "open");
+  const a = await pick("acme-api", "TK-1", hoursAgo(5));
+  const b = await pick("acme-api", "TK-2", hoursAgo(5));
+  await pick("acme-api", "TK-3", hoursAgo(5));
+
+  // A dry run sends nothing.
+  await runNightly({ home, hiveHome, now: NOW, asks: false, dryRun: true, branches: fakeGit().branches, notify });
+  expect(sent).toEqual([]);
+
+  const r = await runNightly({ home, hiveHome, now: NOW, asks: false, branches: fakeGit().branches, notify });
+  expect(sent.length).toBe(1);
+  expect(sent[0]).toStartWith("From comb's queue sweep: I withdrew 2 cards from Greg's queue, without an answer from him.");
+  expect(sent[0]).toContain(`- ${a.title} (${a.id}): TK-1 is closed`);
+  expect(sent[0]).toContain(`- ${b.title} (${b.id}): TK-2 is in_progress: someone has the work`);
+  expect(sent[0]).not.toContain("TK-3");
+  expect(r.notified).toBe("told maya");
+
+  // The next run withdraws nothing, so it sends nothing.
+  const again = await runNightly({ home, hiveHome, now: NOW, asks: false, branches: fakeGit().branches, notify });
+  expect(again.withdrawn).toEqual([]);
+  expect(sent.length).toBe(1);
+  expect(again.notified).toBeUndefined();
+});
+
+test("a failed message to Maya is reported, not dropped, and the withdrawals stand", async () => {
+  const errors: unknown[] = [];
+  const orig = console.error;
+  console.error = (...a: unknown[]) => { errors.push(a); };
+  try {
+    await ticket("acme-api", "TK-1", "closed", hoursAgo(1));
+    const a = await pick("acme-api", "TK-1", hoursAgo(5));
+    const r = await runNightly({ home, hiveHome, now: NOW, asks: false, branches: fakeGit().branches, notify: () => Promise.reject(new Error("maya is not there")) });
+    expect(r.notified).toBe("not told maya: maya is not there");
+    expect(errors.length).toBe(1);
+    expect(await status(a.id)).toBe("withdrawn");
+  } finally {
+    console.error = orig;
+  }
+});
+
 // --- the branch check ---------------------------------------------------------
 
 test("branchNames matches the ticket id with or without its dash, and not a longer number", () => {

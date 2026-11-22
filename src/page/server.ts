@@ -32,7 +32,7 @@ import { findClaudeBin, listLiveSessions, runProcess, type LiveSession, type Run
 import { findGhBin, forPage, PullWatch } from "../github";
 import { detectHive, HiveClient, hiveProjectPaths, listHiveProjects, type HiveSetup, type Ticket } from "../hive";
 import { resolveCombHome } from "../paths";
-import { formatNightly, runNightly } from "../nightly";
+import { formatNightly, NIGHTLY_FROM, runNightly } from "../nightly";
 import { isModel, MODELS } from "../models";
 import { answerMessage, answerModel, listItems, readItem, recordAnswer } from "../queue";
 import { buildTimeline, readAgentLanes, sessionOwner } from "../timeline";
@@ -151,7 +151,9 @@ export function startPage(opts: PageOpts = {}) {
       if (filing) return;
       filing = true;
       try {
-        const r = await runNightly({ home, hiveHome: setup.home });
+        // The sweep's withdrawals go to Maya through comb's own delivery, so she wakes and logs them.
+        const notify = (message: string) => sendToAgent({ name: NIGHTLY_FROM, message, home, claudeBin: claude, run });
+        const r = await runNightly({ home, hiveHome: setup.home, notify });
         if (r.filed.length || r.deferred.length || r.withdrawn.length) console.log(`${new Date().toISOString()} ${formatNightly(r)}`);
       } catch (err) {
         console.error("comb page: hive nightly filing failed:", err);

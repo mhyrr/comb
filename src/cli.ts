@@ -9,7 +9,7 @@ import { formatAgentList, listAgents, sendToAgent, startAgent } from "./agents";
 import { UsageError } from "./errors";
 import { combInit, runInitSteps } from "./init";
 import { detectHive, HIVE_URL, HiveClient, listHiveProjects } from "./hive";
-import { formatNightly, NIGHTLY_EVERY_MS, runNightly } from "./nightly";
+import { formatNightly, NIGHTLY_EVERY_MS, NIGHTLY_FROM, runNightly } from "./nightly";
 import { startPage } from "./page/server";
 import { installPageService, PAGE_PORT } from "./page/service";
 import { resolveCombHome } from "./paths";
@@ -105,7 +105,7 @@ async function main(args: string[]): Promise<void> {
       console.log(`hive is off (${hive.why}), so there are no nightly picks to file. Install hive: ${HIVE_URL}`);
       return;
     }
-    console.log(formatNightly(await runNightly({ dryRun, hiveHome: hive.home })));
+    console.log(formatNightly(await runNightly({ dryRun, hiveHome: hive.home, notify: (message) => sendToAgent({ name: NIGHTLY_FROM, message }) })));
     return;
   }
   if (cmd === "queue") {

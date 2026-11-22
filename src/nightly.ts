@@ -49,6 +49,11 @@ export type NightlyOpts = {
   asks?: boolean;
   /** A repo's branches, for the sweep. Defaults to a local, read-only git read (gitBranches). */
   branches?: BranchReader;
+  /**
+   * Delivers the sweep's message to Maya (sweepMessage). The page server and
+   * `comb nightly` pass comb's own delivery (sendToAgent); unset, nothing is sent.
+   */
+  notify?: (message: string) => Promise<unknown>;
 };
 
 /** A branch and the committer time of its tip. */
@@ -72,6 +77,8 @@ export type NightlyReport = {
   dryRun: boolean;
   /** Open cards the sweep took away (or, in a dry run, would), with the reason. */
   withdrawn: NightlyLine[];
+  /** Whether Maya heard about the withdrawals: "told maya", "not told maya: <why>"; unset when nothing was sent. */
+  notified?: string;
   filed: NightlyLine[];
   deferred: NightlyLine[];
   skipped: NightlyLine[];
@@ -260,6 +267,17 @@ function planPick(p: ActPick, ticket: TicketFile): Omit<Planned, "key" | "label"
   };
 }
 
+/** The one message Maya gets when the sweep withdrew cards: each card, its id and why. */
+export function sweepMessage(withdrawn: NightlyLine[]): string {
+  const n = withdrawn.length;
+  return [
+    `From comb's queue sweep: I withdrew ${n} card${n === 1 ? "" : "s"} from Greg's queue, without an answer from him. ` +
+      "They show under Withdrawn on the page for 24 hours. No precedent was written. If one was wrong, file it again with queue_add.",
+    "",
+    ...withdrawn.map((l) => `- ${l.title ?? l.label} (${l.id}): ${l.reason}`),
+  ].join("\n");
+}
+
 /** Reads hive's nightly outputs and files what is new into the queue. */
 export async function runNightly(opts: NightlyOpts = {}): Promise<NightlyReport> {
   const home = opts.home ?? resolveCombHome();
@@ -294,7 +312,17 @@ export async function runNightly(opts: NightlyOpts = {}): Promise<NightlyReport>
     gone.add(item.id);
     report.withdrawn.push({ label, title: item.title, reason, id: item.id });
   }
-  const open = all.filter((i) => i.status === "open" && !gone.has(i.id));
+  // No quiet withdrawals: Maya hears of each one, in one message. Nothing withdrawn, nothing sent.
+  if (!dryRun && report.withdrawn.length && opts.notify) {
+    try {
+      await opts.notify(sweepMessage(report.withdrawn));
+      report.notified = `told ${NIGHTLY_FROM}`;
+    } catch (err) {
+      report.notified = `not told ${NIGHTLY_FROM}: ${err instanceof Error ? err.message : String(err)}`;
+      console.error(`comb: the sweep withdrew ${report.withdrawn.length} card(s) but could not tell ${NIGHTLY_FROM}:`, err);
+    }
+  }
+  const open =all.filter((i) => i.status === "open" && !gone.has(i.id));
   const filedTonight = Object.values(state.filed).filter((r) => r.date === today);
   /**
    * The same ticket or ask text filed in the last week. hive re-picks a ticket
@@ -414,6 +442,7 @@ export function formatNightly(r: NightlyReport): string {
     for (const l of lines) out.push(`  ${show(l)}`);
   };
   section(r.dryRun ? "Would withdraw:" : "Withdrew:", r.withdrawn, (l) => `${l.label}: ${l.reason}  [${l.id}]`);
+  if (r.notified) out.push(`  (${r.notified})`);
   section(r.dryRun ? "Would file:" : "Filed:", r.filed, (l) => `${l.label}: ${l.title}${l.id ? `  [${l.id}]` : ""}`);
   section("Deferred:", r.deferred, (l) => `${l.label}: ${l.reason}`);
   section("Skipped:", r.skipped, (l) => `${l.label}${l.title ? ` (${l.title.slice(0, 60)}${l.title.length > 60 ? "…" : ""})` : ""}: ${l.reason}`);
