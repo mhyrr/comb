@@ -534,7 +534,16 @@ export async function sendToAgent(opts: SendOpts): Promise<{ woke: boolean; sess
     );
     return { woke: false, session: previous };
   }
-  const { session } = await startAgent({ name, prompt: text, home, claudeBin: claude, run, wait: opts.wait });
+  // A finished worktree agent's folder is removed once its commits land.
+  // Its history lived there, so it wakes as a new session in its workspace,
+  // told why, and later wakes resume there.
+  const gone = previous && !existsSync(previous.cwd) ? previous.cwd : null;
+  const prompt = gone
+    ? `(Your working directory ${gone} no longer exists, so this is a new session in your workspace. Read charter.md, the end of log.md and reports/ for your context.)\n\n${text}`
+    : text;
+  const { session } = await startAgent({
+    name, prompt, home, claudeBin: claude, run, wait: opts.wait, ...(gone ? { cwd: agentDir(name, home) } : {}),
+  });
   await appendFile(
     join(agentDir(name, home), "log.md"),
     `- ${new Date().toISOString()} message from ${opts.fromPage ? "greg (page)" : opts.from ?? "unknown"} delivered (woke)\n`,
