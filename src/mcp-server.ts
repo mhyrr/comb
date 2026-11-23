@@ -1,8 +1,8 @@
 /**
  * comb-mcp: comb's MCP tools. comb hands it to each agent it starts with
  * --mcp-config (COMB_AGENT names that agent); the user's own sessions load it from
- * user scope. Four tools: the roster, a message to anyone, a new agent, and
- * an item in front of the user.
+ * user scope. Five tools: the roster, a message to anyone, a new agent, an
+ * item in front of the user, and taking a stale item back.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -12,7 +12,7 @@ import { formatAgentList, GREG, listAgents, sendToAgent, startAgent } from "./ag
 import { human, readCombConfig } from "./config";
 import { findClaudeBin, listLiveSessions } from "./claude";
 import { MODELS } from "./models";
-import { addItem } from "./queue";
+import { addItem, withdrawItem } from "./queue";
 
 /**
  * Who is calling: the agent this server was started for, or else the Claude
@@ -39,7 +39,8 @@ const server = new McpServer(
     instructions:
       "comb runs agents: background sessions, one job each, with a workspace under ~/.comb/agents/<name>/. " +
       "agent_list is the roster. agent_send messages any agent or session and works whether it is working or asleep. " +
-      `agent_start makes a new agent. queue_add puts a proposal, decision, review or blocker in front of ${who.name}.`,
+      `agent_start makes a new agent. queue_add puts a proposal, decision, review or blocker in front of ${who.name}; ` +
+      "queue_withdraw takes one back when its work is done or taken elsewhere.",
   },
 );
 
@@ -114,6 +115,26 @@ server.registerTool("queue_add", {
     const from = (await caller()) ?? "unknown";
     const item = await addItem({ kind, from, title, action, body: why, project, ticket, model, modelWhy: model_why, onNo: on_no, onRedirect: on_redirect });
     return { content: [{ type: "text" as const, text: `Filed ${item.id}. The answer will come to "${from}" as a message.` }] };
+  } catch (err) {
+    return fail(err);
+  }
+});
+
+server.registerTool("queue_withdraw", {
+  description:
+    `Take an open queue item away without an answer from ${who.name}: its work is done, or it was taken elsewhere ` +
+    `(a ticket closed, a branch already holds it, ${who.name} did it in their own session). It is not a Not now: ` +
+    `nothing reaches hive as a precedent and no answer goes to the filer. The page shows it under "Withdrawn" with ` +
+    `your reason. Use it only for items you know are stale; never to decide for ${who.name}.`,
+  inputSchema: {
+    id: z.string().describe("The queue item id, e.g. '2026-11-20-start-contentdash-tk-002-step-2-carousel'."),
+    reason: z.string().describe("Why, in one line, e.g. 'TK-002 was built on branch step-2-carousels in Greg's session'."),
+  },
+}, async ({ id, reason }) => {
+  try {
+    const from = (await caller()) ?? "unknown";
+    const item = await withdrawItem(id, reason, from);
+    return { content: [{ type: "text" as const, text: `Withdrew ${item.id}: ${item.withdrawnWhy}` }] };
   } catch (err) {
     return fail(err);
   }

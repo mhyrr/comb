@@ -145,7 +145,8 @@ questions asked.
   queue. When "Not now" changes something (a branch stays open, the work
   stops, a pick comes back tomorrow), say so in \`on_no\`; when there is an
   obvious redirect, name it in \`on_redirect\`. The card shows ${u} what
-  each answer does.
+  each answer does. When an item you know of goes stale (the work is done,
+  or taken elsewhere), take it back with \`queue_withdraw\` and the reason.
 - When you wait on an answer, keep working on what does not depend on it.
 - For a second opinion, use a sub-agent.${hive ? ` Council needs ${u}'s yes.` : ""}
 

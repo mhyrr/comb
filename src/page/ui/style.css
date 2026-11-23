@@ -457,6 +457,15 @@ a.tl-who:hover b { text-decoration: underline; text-underline-offset: 3px; }
 .answered .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
 .answered .w { color: var(--faint); white-space: nowrap; }
 .answered .unsynced { color: var(--danger); white-space: nowrap; }
+/* Withdrawn (TK-008): one folded line under the answers; open, each row says why. */
+.withdrawn { margin-top: 8px; border-top: 1px solid var(--hair-2); font-size: var(--t-sm); }
+.withdrawn summary { cursor: pointer; padding: 8px 2px; color: var(--graphite); font-weight: 650; width: max-content; }
+.withdrawn summary span { color: var(--faint); font-weight: 450; margin-left: 4px; }
+.withdrawn ul { list-style: none; margin: 0; padding: 0 0 4px; }
+.withdrawn li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 8px 2px; border-top: 1px solid var(--hair-2); }
+.withdrawn .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.withdrawn .w { color: var(--faint); white-space: nowrap; }
+.withdrawn .why { grid-column: 1 / -1; color: var(--graphite); }
 
 .note-card { display: block; text-decoration: none; padding: 16px 0; border-top: 1px solid var(--hair-2); }
 .note-card:first-of-type { border-top: 0; padding-top: 2px; }

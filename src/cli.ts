@@ -9,11 +9,11 @@ import { formatAgentList, listAgents, sendToAgent, startAgent } from "./agents";
 import { UsageError } from "./errors";
 import { combInit, runInitSteps } from "./init";
 import { detectHive, HIVE_URL, HiveClient, listHiveProjects } from "./hive";
-import { formatNightly, NIGHTLY_EVERY_MS, runNightly } from "./nightly";
+import { formatNightly, NIGHTLY_EVERY_MS, NIGHTLY_FROM, runNightly } from "./nightly";
 import { startPage } from "./page/server";
 import { installPageService, PAGE_PORT } from "./page/service";
 import { resolveCombHome } from "./paths";
-import { formatSyncReport, syncAllPrecedents } from "./queue";
+import { formatSyncReport, syncAllPrecedents, withdrawItem } from "./queue";
 import { claudeSettingsPath, installStatusLine, runTee, statusLineStatus, undoStatusLine } from "./statusline";
 
 const usage = `comb: Claude Code background agents with one job each, a live page and a queue.
@@ -39,8 +39,12 @@ Usage:
   comb page --serve [--port N]   Serve only (what the service runs). With hive, it also files hive's
                                  nightly picks into the queue, hourly
   comb nightly [--dry-run]       With hive: file hive's new Act picks into the queue now (briefing asks
-                                 too if config.json sets nightlyAsks); --dry-run prints what it
-                                 would file and why it skips
+                                 too if config.json sets nightlyAsks), after withdrawing open cards
+                                 whose ticket is closed, taken or already done on a branch;
+                                 --dry-run prints what it would withdraw and file, and why it skips
+  comb queue withdraw <id> "<reason>"
+                                 Take an open queue item away without an answer: its work is done
+                                 or was taken elsewhere. Nothing reaches hive as a precedent
   comb precedents sync [--dry-run]
                                  With hive: queue each precedent not yet in hive memory as a
                                  decision candidate (Greg's answers save there as he gives them;
@@ -101,7 +105,14 @@ async function main(args: string[]): Promise<void> {
       console.log(`hive is off (${hive.why}), so there are no nightly picks to file. Install hive: ${HIVE_URL}`);
       return;
     }
-    console.log(formatNightly(await runNightly({ dryRun, hiveHome: hive.home })));
+    console.log(formatNightly(await runNightly({ dryRun, hiveHome: hive.home, notify: (message) => sendToAgent({ name: NIGHTLY_FROM, message }) })));
+    return;
+  }
+  if (cmd === "queue") {
+    const [sub, id, ...words] = rest;
+    if (sub !== "withdraw" || !id || words.length === 0) throw new UsageError(usage);
+    const item = await withdrawItem(id, words.join(" "), process.env.COMB_AGENT || "cli");
+    console.log(`Withdrew ${item.id}: ${item.withdrawnWhy}`);
     return;
   }
   if (cmd === "precedents") {

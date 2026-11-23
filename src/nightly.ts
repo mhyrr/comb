@@ -10,18 +10,23 @@
  * Asks are off unless config.json sets `nightlyAsks: true` (2026-11-15): they
  * come from Greg's own sessions, and he did not want those decisions here.
  *
+ * Each run first sweeps the queue (TK-008, D30): an open card whose ticket is
+ * closed, taken (in_progress), already declined by Greg, or worked on a
+ * branch since the card is withdrawn with a reason. Withdrawn is not an answer.
+ *
  * Every run is safe to repeat. ~/.comb/nightly/filed.json records each item
  * filed, keyed by project+ticket+selectedAt for a pick and date+text for an
  * ask, so nothing is filed twice.
  */
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { readCombConfig } from "./config";
-import { listHiveProjects, parseAttention, readActPicks, readBriefing, readTicketFile, resolveHiveHome, type ActPick } from "./hive";
+import { hiveProjectPaths, listHiveProjects, parseAttention, readActPicks, readBriefing, readTicketFile, resolveHiveHome, type ActPick, type TicketFile } from "./hive";
 import { getCombPaths, resolveCombHome } from "./paths";
-import { addItem, listItems, type QueueItem } from "./queue";
+import { addItem, listItems, withdrawItem, type QueueItem } from "./queue";
 
 /** Who files hive's items: Greg's answer goes to her (D21: she starts the task agents). */
 export const NIGHTLY_FROM = "maya";
@@ -42,7 +47,18 @@ export type NightlyOpts = {
   maxItems?: number;
   /** File the briefing's asks too. Defaults to config.json's `nightlyAsks` (false). */
   asks?: boolean;
+  /** A repo's branches, for the sweep. Defaults to a local, read-only git read (gitBranches). */
+  branches?: BranchReader;
+  /**
+   * Delivers the sweep's message to Maya (sweepMessage). The page server and
+   * `comb nightly` pass comb's own delivery (sendToAgent); unset, nothing is sent.
+   */
+  notify?: (message: string) => Promise<unknown>;
 };
+
+/** A branch and the committer time of its tip. */
+export type Branch = { name: string; at: string };
+export type BranchReader = (repo: string) => Branch[];
 
 type Planned = {
   key: string;
@@ -59,6 +75,10 @@ export type NightlyLine = { label: string; title?: string; reason?: string; id?:
 export type NightlyReport = {
   date: string;
   dryRun: boolean;
+  /** Open cards the sweep took away (or, in a dry run, would), with the reason. */
+  withdrawn: NightlyLine[];
+  /** Whether Maya heard about the withdrawals: "told maya", "not told maya: <why>"; unset when nothing was sent. */
+  notified?: string;
   filed: NightlyLine[];
   deferred: NightlyLine[];
   skipped: NightlyLine[];
@@ -125,7 +145,108 @@ function askTitle(text: string): string {
   return plain.slice(0, 160).replace(/\s+\S*$/, "") + "…";
 }
 
-function planPick(p: ActPick, ticket: { status: string; title: string; priority: string | null; type: string | null }): Omit<Planned, "key" | "label"> {
+const pickAction = (project: string, ticket: string) => `Maya starts task agent ${agentNameFor(project, ticket)} on ${project} ${ticket}.`;
+
+/**
+ * A card whose go starts a task agent on a ticket: hive's pick, or Maya's own
+ * card of the same shape. The sweep's in_progress, branch and Not now rules
+ * apply only to these.
+ */
+export function isPick(i: Pick<QueueItem, "kind" | "from" | "project" | "ticket" | "action">): boolean {
+  return i.kind === "proposal" && i.from === NIGHTLY_FROM && !!i.project && !!i.ticket && i.action === pickAction(i.project, i.ticket);
+}
+
+const later = (a: string | null, b: string | null) => !!a && !!b && Date.parse(a) > Date.parse(b);
+const sameTicket = (a: Pick<QueueItem, "project" | "ticket">, b: Pick<QueueItem, "project" | "ticket">) =>
+  a.project === b.project && !!a.ticket && a.ticket.toUpperCase() === b.ticket?.toUpperCase();
+
+/**
+ * Greg's Not now on a pick of the same ticket that still holds: answered before
+ * `before`, and the ticket not updated since (TK-008). A ticket with no
+ * `updated` time has not changed, so the Not now holds.
+ */
+function standingNo(declined: QueueItem[], project: string, ticket: string, t: TicketFile, before: string | null): QueueItem | null {
+  return declined.find((d) =>
+    sameTicket(d, { project, ticket }) && !!d.answered && (!before || Date.parse(d.answered) < Date.parse(before)) && !later(t.updated, d.answered),
+  ) ?? null;
+}
+
+const noLine = (d: QueueItem) => `Greg said Not now on ${(d.answered ?? "").slice(0, 10)} (${d.id}), and the ticket has not changed since`;
+
+/** A branch names the ticket: `tk-002`, `TK002`, `worktree-contentdash-tk-002`, not `tk-0021`. */
+export function branchNames(branch: string, ticket: string): boolean {
+  const m = ticket.match(/^([A-Za-z]+)-?(\d+)$/);
+  if (!m) return false;
+  return new RegExp(`(^|[^a-z0-9])${m[1]!.toLowerCase()}-?${m[2]}(?!\\d)`).test(branch.toLowerCase());
+}
+
+/**
+ * A repo's local branches and remote-tracking refs with their tip times. Local
+ * and read-only: no fetch, no prompt (GIT_TERMINAL_PROMPT=0), no lock taken
+ * (GIT_OPTIONAL_LOCKS=0), and a 5 s limit. Not a repo, or any git failure,
+ * reads as no branches.
+ */
+export function gitBranches(repo: string): Branch[] {
+  if (!existsSync(join(repo, ".git"))) return [];
+  let out: string;
+  try {
+    out = execFileSync("git", ["-C", repo, "for-each-ref", "--format=%(refname:short)\t%(committerdate:iso-strict)", "refs/heads", "refs/remotes"], {
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: ["ignore", "pipe", "ignore"],
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" },
+    });
+  } catch {
+    return []; // intentional: an unreadable repo gives the branch rule nothing to go on
+  }
+  return out.split("\n").map((l) => l.split("\t")).filter((p) => p.length === 2 && p[0] && p[1]).map(([name, at]) => ({ name: name!, at: at! }));
+}
+
+/**
+ * Why an open card should leave the queue, or null to keep it (TK-008):
+ *   1. its ticket is closed or done: any card, if the ticket changed after the
+ *      card was filed (a pick, always), so a review filed after a close stays;
+ *   2. a pick whose ticket is in_progress: someone took the work;
+ *   3. a pick Greg already said Not now to, ticket unchanged since;
+ *   4. a pick whose ticket a branch names, with commits newer than the card.
+ */
+export function withdrawReason(
+  item: QueueItem, t: TicketFile, declined: QueueItem[], branches: () => Branch[],
+): string | null {
+  const pick = isPick(item);
+  if (CLOSED.has(t.status) && (pick || later(t.updated, item.created))) return `${item.ticket} is ${t.status}`;
+  if (!pick) return null;
+  if (t.status === "in_progress") return `${item.ticket} is in_progress: someone has the work`;
+  const no = standingNo(declined, item.project!, item.ticket!, t, item.created);
+  if (no) return noLine(no);
+  const b = branches().filter((x) => branchNames(x.name, item.ticket!) && later(x.at, item.created)).sort((x, y) => Date.parse(y.at) - Date.parse(x.at))[0];
+  if (b) return `branch ${b.name} has commits since the card (${b.at.slice(0, 10)})`;
+  return null;
+}
+
+/** The open cards the sweep takes away. Writes nothing; runNightly applies it. */
+function planSweep(all: QueueItem[], hiveHome: string, readBranches: BranchReader): { item: QueueItem; reason: string }[] {
+  const declined = all.filter((i) => i.status === "declined" && isPick(i));
+  const repos = new Map(hiveProjectPaths(hiveHome).map((p) => [p.name, p.path]));
+  const cache = new Map<string, Branch[]>();
+  const branchesOf = (project: string) => () => {
+    const repo = repos.get(project);
+    if (!repo) return [];
+    if (!cache.has(repo)) cache.set(repo, readBranches(repo));
+    return cache.get(repo)!;
+  };
+  const out: { item: QueueItem; reason: string }[] = [];
+  for (const item of all) {
+    if (item.status !== "open" || !item.project || !item.ticket) continue;
+    const t = readTicketFile(item.project, item.ticket, hiveHome);
+    if (!t) continue;
+    const reason = withdrawReason(item, t, declined, branchesOf(item.project));
+    if (reason) out.push({ item, reason });
+  }
+  return out;
+}
+
+function planPick(p: ActPick, ticket: TicketFile): Omit<Planned, "key" | "label"> {
   const agent = agentNameFor(p.project, p.ticket);
   const meta = [ticket.status, ticket.priority ? `P${ticket.priority}` : null, ticket.type].filter(Boolean).join(", ");
   return {
@@ -133,7 +254,7 @@ function planPick(p: ActPick, ticket: { status: string; title: string; priority:
     project: p.project,
     ticket: p.ticket,
     title: `Start ${p.project} ${p.ticket}: ${ticket.title || "(untitled)"}`,
-    action: `Maya starts task agent ${agent} on ${p.project} ${p.ticket}.`,
+    action: pickAction(p.project, p.ticket),
     body: [
       `hive's nightly Act watch \`${p.source}\` picked this ticket at ${p.selectedAt}. On go, Maya starts task agent \`${agent}\` on it with the ticket, its context, and where the docs and memory are (D21).`,
       "",
@@ -144,6 +265,17 @@ function planPick(p: ActPick, ticket: { status: string; title: string; priority:
       p.rationale.trim() || "(none given)",
     ].join("\n"),
   };
+}
+
+/** The one message Maya gets when the sweep withdrew cards: each card, its id and why. */
+export function sweepMessage(withdrawn: NightlyLine[]): string {
+  const n = withdrawn.length;
+  return [
+    `From comb's queue sweep: I withdrew ${n} card${n === 1 ? "" : "s"} from Greg's queue, without an answer from him. ` +
+      "They show under Withdrawn on the page for 24 hours. No precedent was written. If one was wrong, file it again with queue_add.",
+    "",
+    ...withdrawn.map((l) => `- ${l.title ?? l.label} (${l.id}): ${l.reason}`),
+  ].join("\n");
 }
 
 /** Reads hive's nightly outputs and files what is new into the queue. */
@@ -160,8 +292,37 @@ export async function runNightly(opts: NightlyOpts = {}): Promise<NightlyReport>
   for (const [k, r] of Object.entries(state.filed)) {
     if (now.getTime() - Date.parse(r.at) > KEEP_RECORD_DAYS * DAY_MS) delete state.filed[k];
   }
-  const open = (await listItems(home, 0, now.getTime())).filter((i) => i.status === "open");
-  const report: NightlyReport = { date: today, dryRun, filed: [], deferred: [], skipped: [], briefing: null, asks: asksOn };
+  const report: NightlyReport = { date: today, dryRun, withdrawn: [], filed: [], deferred: [], skipped: [], briefing: null, asks: asksOn };
+  // Every item, so a Not now from any day still counts.
+  const all = await listItems(home, Infinity, now.getTime());
+  const declined = all.filter((i) => i.status === "declined" && isPick(i));
+
+  // The sweep first: open cards whose work is done or taken leave, without an answer (TK-008).
+  const gone = new Set<string>();
+  for (const { item, reason } of planSweep(all, hiveHome, opts.branches ?? gitBranches)) {
+    const label = `${item.project} ${item.ticket}`;
+    if (!dryRun) {
+      try {
+        await withdrawItem(item.id, reason, "sweep", home, now);
+      } catch (err) {
+        report.skipped.push({ label, title: item.title, reason: `could not withdraw ${item.id}: ${err instanceof Error ? err.message : String(err)}` });
+        continue;
+      }
+    }
+    gone.add(item.id);
+    report.withdrawn.push({ label, title: item.title, reason, id: item.id });
+  }
+  // No quiet withdrawals: Maya hears of each one, in one message. Nothing withdrawn, nothing sent.
+  if (!dryRun && report.withdrawn.length && opts.notify) {
+    try {
+      await opts.notify(sweepMessage(report.withdrawn));
+      report.notified = `told ${NIGHTLY_FROM}`;
+    } catch (err) {
+      report.notified = `not told ${NIGHTLY_FROM}: ${err instanceof Error ? err.message : String(err)}`;
+      console.error(`comb: the sweep withdrew ${report.withdrawn.length} card(s) but could not tell ${NIGHTLY_FROM}:`, err);
+    }
+  }
+  const open =all.filter((i) => i.status === "open" && !gone.has(i.id));
   const filedTonight = Object.values(state.filed).filter((r) => r.date === today);
   /**
    * The same ticket or ask text filed in the last week. hive re-picks a ticket
@@ -188,10 +349,14 @@ export async function runNightly(opts: NightlyOpts = {}): Promise<NightlyReport>
     const dup = ticket ? openDuplicate(open, p.project, p.ticket, "") : null;
     const earlier = state.filed[key] ?? recent((k) => k.startsWith(`pick:${p.project}:${p.ticket}:`));
     let reason: string | null = null;
+    let no: QueueItem | null;
     if (earlier) reason = `already filed ${earlier.date} (${earlier.id})`;
     else if (days > STALE_PICK_DAYS) reason = `stale: picked ${p.selectedAt.slice(0, 10)}, ${days} days ago`;
     else if (!ticket) reason = `hive has no ticket ${p.project}/${p.ticket}`;
     else if (CLOSED.has(ticket.status)) reason = `ticket is ${ticket.status}`;
+    // The sweep would withdraw it within the hour; do not file it at all.
+    else if (ticket.status === "in_progress") reason = "ticket is in_progress: someone has the work";
+    else if ((no = standingNo(declined, p.project, p.ticket, ticket, null))) reason = noLine(no);
     else if (dup) reason = `already open in the queue: ${dup.id}`;
     else if (filedTonight.some((r) => r.kind === "pick" && r.project === p.project)) reason = "one pick per project a night; this project's is filed";
     if (ticket && !CLOSED.has(ticket.status) && days <= STALE_PICK_DAYS) current.push({ project: p.project, ticket: p.ticket, label });
@@ -276,11 +441,13 @@ export function formatNightly(r: NightlyReport): string {
     out.push("", head);
     for (const l of lines) out.push(`  ${show(l)}`);
   };
+  section(r.dryRun ? "Would withdraw:" : "Withdrew:", r.withdrawn, (l) => `${l.label}: ${l.reason}  [${l.id}]`);
+  if (r.notified) out.push(`  (${r.notified})`);
   section(r.dryRun ? "Would file:" : "Filed:", r.filed, (l) => `${l.label}: ${l.title}${l.id ? `  [${l.id}]` : ""}`);
   section("Deferred:", r.deferred, (l) => `${l.label}: ${l.reason}`);
   section("Skipped:", r.skipped, (l) => `${l.label}${l.title ? ` (${l.title.slice(0, 60)}${l.title.length > 60 ? "…" : ""})` : ""}: ${l.reason}`);
   if (!r.asks) out.push("", "asks: off (set nightlyAsks in config.json)");
   else if (r.briefing) out.push("", `Briefing: ${r.briefing}`);
-  if (!r.filed.length && !r.deferred.length) out.push("", "Nothing new.");
+  if (!r.filed.length && !r.deferred.length && !r.withdrawn.length) out.push("", "Nothing new.");
   return out.join("\n");
 }

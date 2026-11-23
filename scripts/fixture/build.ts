@@ -355,6 +355,16 @@ item(`${day(8)}-start-acme-api-tk-51-rotate-api-keys`, {
   action: "I start task agent acme-api-tk51 on acme-api TK-51.",
   model: "sonnet", modelWhy: "The design is settled; this is careful plumbing, not judgment.",
 },"Next in line once TK-42 lands, and it touches the same middleware, so the context is fresh now. The ticket has an agreed design.");
+// A card comb's sweep took back (TK-008, D30): its ticket went in_progress in the user's own session.
+{
+  const id = `${day(300)}-start-docs-site-tk-15-redirects-for-the-old`;
+  const head = Object.entries({
+    id, kind: "proposal", from: "maya", title: "Start docs-site TK-15: Redirects for the old /guide URLs", project: "docs-site", ticket: "TK-15",
+    action: "Maya starts task agent docs-site-tk-15 on docs-site TK-15.", status: "withdrawn", created: ago(300), answered: "", note: "",
+    withdrawn: ago(50), withdrawnBy: "sweep", withdrawnWhy: "TK-15 is in_progress: someone has the work",
+  }).map(([k, v]) => `${k}: ${v}`).join("\n");
+  put(join(COMB, "queue", id, "item.md"), `---\n${head}\n---\n\nhive's nightly Act watch picked this ticket.\n`);
+}
 
 // --- tickets and memory for the fake hive MCP server ----------------------------
 put(join(HOME, "hive-fixture.json"), JSON.stringify({

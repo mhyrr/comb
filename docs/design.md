@@ -545,7 +545,8 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   written; Redirect carries his answer. The project comes from the bold lead
   (`**acme-api:**`), the ticket from the first `TK-n` in the text.
 - **Skips, each reported with its reason:** a pick older than 7 days; a pick
-  whose ticket is closed or done, or that hive has no file for; anything
+  whose ticket is closed or done, or in_progress, or that hive has no file
+  for; a pick Greg said Not now to while its ticket is unchanged (D30); anything
   with an open queue item on the same project and ticket (ticket field, or
   the id in the title) or the same title; an ask about a ticket that a
   current pick already covers.
@@ -554,8 +555,23 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   answered item is not refiled. hive re-picks a ticket with a new
   `selectedAt` (twice on 2026-11-13 alone), and briefings repeat asks, so the
   same project+ticket, or the same ask text, is also skipped for 7 days
-  after it was filed; after that, a ticket hive still picks is asked again.
-  Records older than 30 days are pruned.
+  after it was filed; after that, a ticket hive still picks is asked again,
+  unless Greg said Not now to it (D30). Records older than 30 days are pruned.
+- **The sweep withdraws stale cards (D30, 2026-11-22, TK-008).** Each run
+  first looks at every open card with a project and ticket again. A card
+  leaves the queue as `withdrawn`, with a one-line reason, when: its ticket
+  is closed or done (a pick always; any other card only if the ticket's
+  `updated` is later than the card, so a review filed after the close
+  stays); or, for a pick (Maya's proposal whose action is `Maya starts task
+  agent <project>-<ticket> on <project> <ticket>.`), its ticket is
+  in_progress; or Greg said Not now to an earlier pick of the ticket and
+  the ticket's `updated` is not later than that answer; or a branch in the
+  project's repo (`path:` in hive's config.md) names the ticket (`tk-002`,
+  `TK002`) and its tip commit is newer than the card. The git read is
+  `git for-each-ref refs/heads refs/remotes`: local, no fetch,
+  `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`, 5 s limit; a missing or
+  unreadable repo reads as no branches. `comb nightly --dry-run` lists what
+  it would withdraw and why.
 - **Caps.** At most one pick per project a night, and 10 items a night
   (local date). Asks are filed first because they do not come back: an
   excess ask is dropped (tomorrow's briefing carries what still matters),
@@ -802,6 +818,28 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   responsible process of a Google Chrome that the page's children launched.
   Because comb's cdhash changes, a stored answer never matches. Only a stable
   signing identity (a real certificate) fixes that.
+
+- **D30. A card can leave the queue without an answer** (2026-11-22,
+  TK-008). Greg: "some of these proposals are a couple of days old and
+  we've done them separately or in our own sessions ... if it's done these
+  go away automatically." Before this, the only way out of the queue was an
+  answer, and marking an item declined would have sent hive a false Not now.
+  `withdrawn` is a fifth status with `withdrawn` (time), `withdrawnBy`
+  ("sweep" or an agent) and `withdrawnWhy`. It writes no precedent, sends
+  nothing to hive or the filer, and `precedentEntry` refuses it. The hourly
+  sweep (§9.3) withdraws; any agent can with `queue_withdraw` (comb-mcp) or
+  `comb queue withdraw <id> "<reason>"`. The page folds withdrawn items into
+  one "Withdrawn N" line under the answers, each with its reason, for 24
+  hours after the withdrawal (the answers' window, by `withdrawn` time);
+  after that the page drops them and item.md stays on disk. Greg's answer
+  that races the sweep still counts and clears the withdrawal. No withdrawal
+  is quiet: when the sweep withdraws anything, Maya gets one message (through
+  comb's own delivery, sendToAgent) listing each card and its reason; a run that
+  withdraws nothing sends nothing, and a failed delivery is logged and shown in
+  the run's report. A Not now on
+  a pick now holds until the ticket's `updated` is later than the answer,
+  with no 7-day expiry: matreas TK-479 was declined on 2026-11-15 and came
+  back on 2026-11-22.
 
 ## 11. Open questions
 
