@@ -283,6 +283,22 @@ describe("comb agents", () => {
     expect(bg.argv[bg.argv.indexOf("--resume") + 1]).toBe(first.session.sessionId);
   });
 
+  test("status decides working; state is only the fallback (TK-010)", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    const stateOf = async () => (await listAgents(base)).find((r) => r.name === "maya")!.state;
+    // Idle status with a stale state "working": ready.
+    claude.sessions[0] = { ...claude.sessions[0]!, kind: "background", status: "idle", state: "working", pid: 1 };
+    expect(await stateOf()).toBe("ready");
+    // Busy status wins over a stale state.
+    claude.sessions[0] = { ...claude.sessions[0]!, status: "busy", state: "blocked" };
+    expect(await stateOf()).toBe("working");
+    // No status: state is the fallback.
+    claude.sessions[0] = { ...claude.sessions[0]!, kind: "interactive", status: undefined, state: "working" };
+    expect(await stateOf()).toBe("working");
+  });
+
   test("a live background session with the same name still blocks the start", async () => {
     const claude = fakeClaude([
       { id: "deadbeef", sessionId: "deadbeef-x", name: "hive", cwd: "/x", kind: "background", state: "blocked", status: "idle" },

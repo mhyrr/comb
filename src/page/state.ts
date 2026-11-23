@@ -8,7 +8,7 @@ import { open, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { agentDir, GREG, readAgentSession, type AgentSession } from "../agents";
-import { isEnded, type LiveSession } from "../claude";
+import { isBusy, isEnded, type LiveSession } from "../claude";
 import { DEFAULT_FOLD_AFTER_HOURS, readCombConfig, userLabel, type UserLabel } from "../config";
 import { projectForDir } from "../hive";
 import { listItems, type QueueItem } from "../queue";
@@ -83,7 +83,7 @@ export type Snapshot = {
 
 export function activityOf(row: LiveSession | undefined): Activity {
   if (!row || isEnded(row)) return "asleep";
-  return row.status === "busy" || row.status === "working" || row.state === "working" ? "working" : "waiting";
+  return isBusy(row) ? "working" : "waiting";
 }
 
 export type BuildOpts = {

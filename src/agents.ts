@@ -19,6 +19,7 @@ import { pageSignature } from "./transcript";
 import { ensureCombScaffold, resolveCombHome } from "./paths";
 import {
   findClaudeBin,
+  isBusy,
   isEnded,
   stopSession,
   listLiveSessions,
@@ -447,7 +448,7 @@ export async function listAgents(opts: { home?: string; claudeBin?: string; run?
 
 function isWorking(row: LiveSession): boolean {
   if (isEnded(row)) return false;
-  return row.status === "busy" || row.status === "working" || row.state === "working";
+  return isBusy(row);
 }
 
 async function firstLine(path: string): Promise<string | null> {
