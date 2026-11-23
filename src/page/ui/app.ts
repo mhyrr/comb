@@ -701,6 +701,8 @@ let ticketsAt = 0;
 /** Per queue item: an open note form, what was typed, a send in flight, and the model menu and pick. */
 type QState = { mode?: "no" | "redirect"; text?: string; busy?: boolean; error?: string; more?: boolean; menu?: boolean; model?: string };
 const qState = new Map<string, QState>();
+/** What happened to the last answer when its agent could not be woken (TK-009). Kept until the next answer. */
+let qNotice: string | null = null;
 const started = (() => {
   try { return new Set<string>(JSON.parse(localStorage.getItem("comb.started") ?? "[]")); } catch { return new Set<string>(); }
 })();
@@ -750,6 +752,7 @@ function renderNow() {
           <section class="now-section" id="now-queue">
             <h2 id="q-head"></h2>
             <button type="button" class="qnew" id="q-new" data-qa="shownew" hidden></button>
+            <p class="quiet" id="q-notice" hidden></p>
             <div id="q-cards"></div>
             <div id="q-rest"></div>
           </section>
@@ -793,6 +796,8 @@ function renderNow() {
     setSection("q-head", `Waiting on you${open.length ? ` <span>${open.length}</span>` : ""}`);
     $("q-new").hidden = !waiting.length;
     if (waiting.length) setSection("q-new", `${count(waiting.length)} new, show`);
+    $("q-notice").hidden = !qNotice;
+    setSection("q-notice", qNotice ? esc(qNotice) : "");
     patchList($("q-cards"), show.map((id) => ({ key: id, html: queueCard(byId.get(id)!) })));
     setSection("q-rest", queueRest(open.length, answered, withdrawn));
     setSection("now-notes", notesHtml(nodes));
@@ -1058,6 +1063,7 @@ async function answer(id: string, ans: "go" | "no" | "redirect", note: string, m
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? "Could not send the answer.");
     qState.delete(id);
+    qNotice = typeof data.notice === "string" ? data.notice : null;
   } catch (err) {
     qState.set(id, { ...s, busy: false, error: (err as Error).message });
   }

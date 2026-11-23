@@ -34,7 +34,8 @@ import { detectHive, HiveClient, hiveProjectPaths, listHiveProjects, type HiveSe
 import { resolveCombHome } from "../paths";
 import { formatNightly, NIGHTLY_FROM, runNightly } from "../nightly";
 import { isModel, MODELS } from "../models";
-import { answerMessage, answerModel, listItems, readItem, recordAnswer } from "../queue";
+import { answerModel, listItems, readItem, recordAnswer } from "../queue";
+import { answerItem } from "./answer";
 import { buildTimeline, readAgentLanes, sessionOwner } from "../timeline";
 import { McpHealth } from "../mcphealth";
 import { countTools } from "../tools";
@@ -377,14 +378,16 @@ export function startPage(opts: PageOpts = {}) {
           if (item.status === "withdrawn") return json({ error: `Withdrawn: ${item.withdrawnWhy ?? "no reason recorded"}.` }, 409);
           if (item.status !== "open") return json({ error: `Already answered (${item.status}).` }, 409);
           const model = answerModel(item, answer, isModel(body?.model) ? body.model : null, readCombConfig(home).defaultModel);
-          // Deliver first: an answer that never reached the agent leaves the item open.
-          const message = answerMessage(item, answer, note || null, model);
-          const { woke } = await sendToAgent({ name: item.from, message, fromPage: true, home, claudeBin: claude, run });
+          // Record first, then deliver: Greg's answer never depends on the delivery (TK-009).
           // With hive, the precedent also goes to hive memory (D13); a failed sync is noted, never fatal.
           const sink = hiveOn ? { writer: hive, projects: listHiveProjects(setup.home) } : null;
-          const done = await recordAnswer(item.id, answer, note || null, home, new Date(), model, sink);
+          const result = await answerItem(item, answer, note || null, model, {
+            home,
+            record: () => recordAnswer(item.id, answer, note || null, home, new Date(), model, sink),
+            send: (name, message) => sendToAgent({ name, message, fromPage: true, home, claudeBin: claude, run }),
+          });
           void refresh().catch(() => {});
-          return json({ item: done, woke });
+          return json(result);
         }),
       },
       "/api/tickets/start": {
