@@ -388,6 +388,28 @@ describe("comb agents", () => {
     expect(claude.calls.some((c) => c.argv[1] === "-p")).toBe(false);
   });
 
+  test("send to an agent whose worktree was removed wakes it in its workspace, told why", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    const tree = join(root, "worktree");
+    await mkdir(tree, { recursive: true });
+    await startAgent({ name: "acme-api", charter: "c", cwd: tree, parent: "maya", ...base });
+    claude.sessions[0] = { ...claude.sessions[0]!, kind: "background", state: "done", status: undefined };
+    await rm(tree, { recursive: true });
+
+    const { woke, session } = await sendToAgent({ name: "acme-api", message: "close out", from: "maya", ...base });
+    expect(woke).toBe(true);
+    const bg = claude.calls.filter((c) => c.argv[1] === "--bg").at(-1)!;
+    expect(bg.cwd).toBe(agentDir("acme-api", home));
+    // Its history lived in the removed folder, so this is a new session.
+    expect(bg.argv).not.toContain("--resume");
+    expect(bg.argv.at(-1)).toContain(`${tree} no longer exists`);
+    expect(bg.argv.at(-1)).toContain("close out");
+    // The next wake resumes there, and keeps its parent.
+    expect(session!.cwd).toBe(agentDir("acme-api", home));
+    expect(session!.parent).toBe("maya");
+  });
+
   test("send reaches a session that is not an agent, such as Greg's", async () => {
     const claude = fakeClaude([{ id: "x", sessionId: "s-1", name: "hive-e8", cwd: repo, kind: "interactive", status: "idle", pid: 42 }]);
     const { woke } = await sendToAgent({ name: "hive-e8", message: "done", from: "hive-a1", home, claudeBin: "claude", run: claude.run });

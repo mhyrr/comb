@@ -262,8 +262,8 @@ export type PrecedentSink = {
 export type SyncResult = { ok: true; project: string } | { ok: false; error: string };
 
 /**
- * Records Greg's answer and his precedent. Call after the message reached the
- * agent, so an undelivered answer leaves the item open. With `hive`, it also
+ * Records Greg's answer and his precedent. The page calls it before it
+ * delivers the answer, so a failed delivery never loses it. With `hive`, it also
  * queues the precedent in hive memory (D13). A hive failure never fails the
  * answer: it is logged, and the item and the precedent say it was not synced.
  */
