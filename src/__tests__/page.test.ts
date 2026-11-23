@@ -265,6 +265,13 @@ describe("snapshot", () => {
     expect(activityOf({ id: "", sessionId: "", name: "", cwd: "", kind: "background", state: "blocked" })).toBe("asleep");
     expect(activityOf(undefined)).toBe("asleep");
   });
+
+  test("activity: status decides when present; state is only the fallback (TK-010)", () => {
+    const row = { id: "", sessionId: "", name: "", cwd: "", kind: "background" } as const;
+    expect(activityOf({ ...row, status: "idle", state: "working" })).toBe("waiting");
+    expect(activityOf({ ...row, status: "busy", state: "blocked" })).toBe("working");
+    expect(activityOf({ ...row, kind: "interactive", state: "working" })).toBe("working");
+  });
 });
 
 describe("the Finished fold (D22)", () => {

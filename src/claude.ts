@@ -64,6 +64,16 @@ export function isEnded(row: LiveSession): boolean {
   return row.kind === "background" && !row.status;
 }
 
+/**
+ * Whether a live session is mid-turn. `status` is current; `state` can lag
+ * (a finished session can keep state "working" with status "idle"). So
+ * `status` decides when present, and `state` is only the fallback.
+ */
+export function isBusy(row: LiveSession): boolean {
+  if (row.status) return row.status === "busy" || row.status === "working";
+  return row.state === "working";
+}
+
 /** Live sessions, or with `all` also finished and failed ones. */
 export async function listLiveSessions(
   claude: string,
