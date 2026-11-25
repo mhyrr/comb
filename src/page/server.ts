@@ -343,9 +343,9 @@ export function startPage(opts: PageOpts = {}) {
           const to = typeof body?.to === "string" ? body.to.trim() : "";
           const message = typeof body?.message === "string" ? body.message.trim() : "";
           if (!to || !message) return json({ error: "Name an agent and write a message." }, 400);
-          const { woke } = await sendToAgent({ name: to, message, fromPage: true, home, claudeBin: claude, run });
+          const { woke, forwardedTo } = await sendToAgent({ name: to, message, fromPage: true, home, claudeBin: claude, run });
           void refresh().catch(() => {});
-          return json({ woke });
+          return json({ woke, forwardedTo: forwardedTo ?? null });
         }),
       },
       "/api/upload": {

@@ -98,8 +98,10 @@ async function main(args: string[]): Promise<void> {
   if (cmd === "send") {
     const [name, ...words] = rest;
     if (!name || words.length === 0) throw new UsageError(usage);
-    const { woke } = await sendToAgent({ name, message: words.join(" ") });
-    console.log(woke ? `${name} was asleep and is waking with the message.` : `Delivered to ${name}.`);
+    const { woke, forwardedTo, reason } = await sendToAgent({ name, message: words.join(" ") });
+    console.log(forwardedTo
+      ? `Could not wake ${name} (${reason}). The message is in its log.md, and went to ${forwardedTo}.`
+      : woke ? `${name} was asleep and is waking with the message.` : `Delivered to ${name}.`);
     return;
   }
   if (cmd === "nightly") {

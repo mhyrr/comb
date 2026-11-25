@@ -74,7 +74,11 @@ server.registerTool("agent_send", {
 }, async ({ to, message }) => {
   try {
     const from = await caller();
-    const { woke } = await sendToAgent({ name: to, message, from });
+    const { woke, forwardedTo, reason } = await sendToAgent({ name: to, message, from });
+    if (forwardedTo) {
+      const text = `Not delivered: comb could not wake ${to} (${reason}). The message is in its log.md, and ${forwardedTo} has it now.`;
+      return { content: [{ type: "text" as const, text }] };
+    }
     const how = woke ? "It was asleep and is waking with your message." : "Delivered.";
     const reply = from ? ` Its reply will come to "${from}".` : "";
     return { content: [{ type: "text" as const, text: `${how}${reply}` }] };
