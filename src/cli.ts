@@ -9,7 +9,7 @@ import { formatAgentList, listAgents, sendToAgent, startAgent } from "./agents";
 import { UsageError } from "./errors";
 import { combInit, runInitSteps } from "./init";
 import { detectHive, HIVE_URL, HiveClient, listHiveProjects } from "./hive";
-import { formatNightly, NIGHTLY_EVERY_MS, NIGHTLY_FROM, runNightly } from "./nightly";
+import { formatMorning, formatNightly, NIGHTLY_EVERY_MS, NIGHTLY_FROM, runMorning, runNightly } from "./nightly";
 import { startPage } from "./page/server";
 import { installPageService, PAGE_PORT } from "./page/service";
 import { resolveCombHome } from "./paths";
@@ -41,7 +41,9 @@ Usage:
   comb nightly [--dry-run]       With hive: file hive's new Act picks into the queue now (briefing asks
                                  too if config.json sets nightlyAsks), after withdrawing open cards
                                  whose ticket is closed, taken or already done on a branch;
-                                 --dry-run prints what it would withdraw and file, and why it skips
+                                 --dry-run prints what it would withdraw and file, and why it skips.
+                                 Then the morning wake: once today's hive nightly has finished,
+                                 Maya gets one message naming the briefing (or saying it failed)
   comb queue add --kind K --title "<t>" --action "<a>" [--changes "<c>"] [--why "<case>"]
                 [--project P] [--ticket T] [--model M] [--model-why "<w>"] [--on-no "<n>"] [--on-redirect "<r>"]
                                  File a queue item, as queue_add does. A proposal needs --changes:
@@ -109,7 +111,9 @@ async function main(args: string[]): Promise<void> {
       console.log(`hive is off (${hive.why}), so there are no nightly picks to file. Install hive: ${HIVE_URL}`);
       return;
     }
-    console.log(formatNightly(await runNightly({ dryRun, hiveHome: hive.home, notify: (message) => sendToAgent({ name: NIGHTLY_FROM, message }) })));
+    const notify = (message: string) => sendToAgent({ name: NIGHTLY_FROM, message });
+    console.log(formatNightly(await runNightly({ dryRun, hiveHome: hive.home, notify })));
+    console.log(`\n${formatMorning(await runMorning({ dryRun, hiveHome: hive.home, notify }))}`);
     return;
   }
   if (cmd === "queue") {

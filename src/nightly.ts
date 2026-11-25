@@ -24,7 +24,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { readCombConfig } from "./config";
-import { hiveProjectPaths, listHiveProjects, parseAttention, readActPicks, readBriefing, readTicketFile, resolveHiveHome, type ActPick, type TicketFile } from "./hive";
+import { hiveProjectPaths, listHiveProjects, parseAttention, readActPicks, readBriefing, readNightlyRun, readTicketFile, resolveHiveHome, type ActPick, type NightlyRun, type TicketFile } from "./hive";
 import { getCombPaths, resolveCombHome } from "./paths";
 import { addItem, listItems, withdrawItem, type QueueItem } from "./queue";
 
@@ -435,6 +435,104 @@ export async function runNightly(opts: NightlyOpts = {}): Promise<NightlyReport>
   }
   if (!dryRun) await saveState(path, state);
   return report;
+}
+
+// --- The morning wake (D31) ---------------------------------------------------
+
+export type MorningOpts = {
+  home?: string;
+  hiveHome?: string;
+  now?: Date;
+  /** Report what would be sent; send and record nothing. */
+  dryRun?: boolean;
+  /** Delivers the message to Maya. Unset, nothing is sent and nothing recorded. */
+  notify?: (message: string) => Promise<unknown>;
+};
+
+export type MorningReport = {
+  date: string;
+  dryRun: boolean;
+  /** hive's nightly for the date: complete, failed, running or none (readNightlyRun). */
+  run: NightlyRun["state"];
+  /** The message for Maya; null while there is nothing to say. */
+  message: string | null;
+  /** What happened: "told maya", "would tell maya", "already told maya at …", "not told maya: …", or why it stays silent. */
+  outcome: string;
+};
+
+type MorningState = { sent: { [date: string]: { complete?: string; failed?: string } } };
+
+export function morningFile(home: string = resolveCombHome()): string {
+  return join(getCombPaths(home).home, "nightly", "morning.json");
+}
+
+/** The one message for a finished nightly: the briefing's path, or that the run failed. */
+export function morningMessage(date: string, run: NightlyRun, hiveHome: string): string {
+  if (run.state === "failed") {
+    return `Morning proposals: hive's nightly for ${date} failed (${run.line ?? "no reason in its log"}), so there is no briefing for today. ` +
+      "hive retries at its next firing; if a retry completes, you get the briefing then.";
+  }
+  if (!run.briefing) return `Morning proposals: hive's nightly for ${date} completed but wrote no briefing (looked in ${join(hiveHome, "briefings", `${date}.md`)}).`;
+  return `Morning proposals: today's briefing is ${run.briefing}`;
+}
+
+/**
+ * Wakes Maya once a day after hive's nightly finishes (D31, TK-012). Runs
+ * hourly with runNightly. Silent until today's run has completed or failed.
+ * Each outcome is sent at most once a day, recorded in
+ * ~/.comb/nightly/morning.json: a failure, then a retry that completes, is two
+ * messages; the hourly runs after either repeat nothing. A failed delivery is
+ * not recorded, so the next hour tries again.
+ */
+export async function runMorning(opts: MorningOpts = {}): Promise<MorningReport> {
+  const home = opts.home ?? resolveCombHome();
+  const hiveHome = opts.hiveHome ?? resolveHiveHome();
+  const now = opts.now ?? new Date();
+  const dryRun = opts.dryRun ?? false;
+  const date = localDate(now);
+  const run = readNightlyRun(date, hiveHome);
+  const report: MorningReport = { date, dryRun, run: run.state, message: null, outcome: "" };
+  if (run.state === "none" || run.state === "running") {
+    report.outcome = `silent: hive's nightly for ${date} ${run.state === "none" ? "has not run yet" : "is still running"}`;
+    return report;
+  }
+  report.message = morningMessage(date, run, hiveHome);
+  const path = morningFile(home);
+  const state: MorningState = existsSync(path) ? { sent: {}, ...(JSON.parse(await readFile(path, "utf-8")) as Partial<MorningState>) } : { sent: {} };
+  const before = state.sent[date]?.[run.state];
+  if (before) {
+    report.outcome = `already told ${NIGHTLY_FROM} at ${before}`;
+    return report;
+  }
+  if (dryRun) {
+    report.outcome = `would tell ${NIGHTLY_FROM}`;
+    return report;
+  }
+  if (!opts.notify) {
+    report.outcome = `not told ${NIGHTLY_FROM}: no delivery`;
+    return report;
+  }
+  try {
+    await opts.notify(report.message);
+  } catch (err) {
+    report.outcome = `not told ${NIGHTLY_FROM}: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`comb: the morning wake could not reach ${NIGHTLY_FROM}; it tries again next hour:`, err);
+    return report;
+  }
+  for (const d of Object.keys(state.sent)) {
+    if (now.getTime() - Date.parse(`${d}T12:00:00`) > KEEP_RECORD_DAYS * DAY_MS) delete state.sent[d];
+  }
+  state.sent[date] = { ...state.sent[date], [run.state]: now.toISOString() };
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(`${path}.tmp`, JSON.stringify(state, null, 2) + "\n", "utf-8");
+  await rename(`${path}.tmp`, path);
+  report.outcome = `told ${NIGHTLY_FROM}`;
+  return report;
+}
+
+export function formatMorning(r: MorningReport): string {
+  const head = `Morning wake, ${r.date}${r.dryRun ? " (dry run: nothing sent)" : ""}: hive's nightly is ${r.run}; ${r.outcome}.`;
+  return r.message ? `${head}\n  ${r.message}` : head;
 }
 
 export function formatNightly(r: NightlyReport): string {
