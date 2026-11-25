@@ -68,6 +68,8 @@ type Planned = {
   ticket: string | null;
   title: string;
   action: string;
+  /** What changes for Greg on go (D31); a pick's says a task agent starts, and how its work comes back. */
+  changes?: string;
   body: string;
 };
 
@@ -255,6 +257,7 @@ function planPick(p: ActPick, ticket: TicketFile): Omit<Planned, "key" | "label"
     ticket: p.ticket,
     title: `Start ${p.project} ${p.ticket}: ${ticket.title || "(untitled)"}`,
     action: pickAction(p.project, p.ticket),
+    changes: `Nothing visible yet: a task agent works ${p.project} ${p.ticket} (${ticket.title || "untitled"}) and comes back to you as a review card.`,
     body: [
       `hive's nightly Act watch \`${p.source}\` picked this ticket at ${p.selectedAt}. On go, Maya starts task agent \`${agent}\` on it with the ticket, its context, and where the docs and memory are (D21).`,
       "",
@@ -422,7 +425,7 @@ export async function runNightly(opts: NightlyOpts = {}): Promise<NightlyReport>
       continue;
     }
     const filed = await addItem(
-      { kind: item.kind, from: NIGHTLY_FROM, title: item.title, action: item.action, body: item.body, project: item.project, ticket: item.ticket },
+      { kind: item.kind, from: NIGHTLY_FROM, title: item.title, action: item.action, changes: item.changes, body: item.body, project: item.project, ticket: item.ticket },
       home,
       now,
     );

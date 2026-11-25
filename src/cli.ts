@@ -13,7 +13,7 @@ import { formatNightly, NIGHTLY_EVERY_MS, NIGHTLY_FROM, runNightly } from "./nig
 import { startPage } from "./page/server";
 import { installPageService, PAGE_PORT } from "./page/service";
 import { resolveCombHome } from "./paths";
-import { formatSyncReport, syncAllPrecedents, withdrawItem } from "./queue";
+import { addItem, formatSyncReport, syncAllPrecedents, withdrawItem, type NewItem } from "./queue";
 import { claudeSettingsPath, installStatusLine, runTee, statusLineStatus, undoStatusLine } from "./statusline";
 
 const usage = `comb: Claude Code background agents with one job each, a live page and a queue.
@@ -42,6 +42,10 @@ Usage:
                                  too if config.json sets nightlyAsks), after withdrawing open cards
                                  whose ticket is closed, taken or already done on a branch;
                                  --dry-run prints what it would withdraw and file, and why it skips
+  comb queue add --kind K --title "<t>" --action "<a>" [--changes "<c>"] [--why "<case>"]
+                [--project P] [--ticket T] [--model M] [--model-why "<w>"] [--on-no "<n>"] [--on-redirect "<r>"]
+                                 File a queue item, as queue_add does. A proposal needs --changes:
+                                 what changes for you on go, from your side of the screen
   comb queue withdraw <id> "<reason>"
                                  Take an open queue item away without an answer: its work is done
                                  or was taken elsewhere. Nothing reaches hive as a precedent
@@ -109,6 +113,11 @@ async function main(args: string[]): Promise<void> {
     return;
   }
   if (cmd === "queue") {
+    if (rest[0] === "add") {
+      const item = await addItem(parseQueueAdd(rest.slice(1)));
+      console.log(`Filed ${item.id}. The answer will go to "${item.from}" as a message.`);
+      return;
+    }
     const [sub, id, ...words] = rest;
     if (sub !== "withdraw" || !id || words.length === 0) throw new UsageError(usage);
     const item = await withdrawItem(id, words.join(" "), process.env.COMB_AGENT || "cli");
@@ -190,6 +199,26 @@ async function pageIsUp(url: string): Promise<boolean> {
   } catch {
     return false; // intentional: nothing listening
   }
+}
+
+/** `comb queue add`'s flags, named as queue_add's fields. The filer is $COMB_AGENT, else "cli". */
+function parseQueueAdd(args: string[], from = process.env.COMB_AGENT || "cli"): NewItem {
+  const flags: Record<string, keyof NewItem> = {
+    "--kind": "kind", "--title": "title", "--action": "action", "--changes": "changes", "--why": "body",
+    "--project": "project", "--ticket": "ticket", "--model": "model", "--model-why": "modelWhy",
+    "--on-no": "onNo", "--on-redirect": "onRedirect",
+  };
+  const out: Record<string, string> = {};
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i]!;
+    const field = flags[flag];
+    if (!field) throw new UsageError(`Unknown flag: ${flag}\n\n${usage}`);
+    const v = args[++i];
+    if (v === undefined) throw new UsageError(`${flag} needs a value`);
+    out[field] = v;
+  }
+  if (!out.kind) throw new UsageError(`--kind is required\n\n${usage}`);
+  return { title: "", action: "", ...out, kind: out.kind, from };
 }
 
 async function parseStart(args: string[]) {

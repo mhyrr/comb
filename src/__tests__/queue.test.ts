@@ -9,7 +9,7 @@ let home: string;
 beforeEach(async () => { home = await mkdtemp(join(tmpdir(), "comb-queue-")); });
 afterEach(async () => { await rm(home, { recursive: true, force: true }); });
 
-const base = { kind: "proposal", from: "maya", title: "Start a acme-api agent on TK-143", action: "Start acme-api on TK-143 and triage the 22 Sobelow findings.", project: "acme-api", ticket: "TK-143" };
+const base = { kind: "proposal", from: "maya", title: "Start a acme-api agent on TK-143", action: "Start acme-api on TK-143 and triage the 22 Sobelow findings.", changes: "Nothing visible: the 22 Sobelow findings get triaged.", project: "acme-api", ticket: "TK-143" };
 
 test("an item is a readable file that round-trips, one line per field", async () => {
   const item = await addItem({ ...base, title: "Start a acme-api\nagent on TK-143", body: "## Why\n\nCI is red on main." }, home, new Date("2026-11-12T01:00:00Z"));
@@ -56,7 +56,7 @@ test("the list holds open items first, then recent answers; stale answers drop o
 });
 
 test("the answer message tells the agent exactly what to do", () => {
-  const item = { ...base, id: "x", kind: "proposal" as const, model: null, modelWhy: null, onNo: null, onRedirect: null, status: "open" as const, created: "", answered: null, note: null, hiveSync: null, withdrawn: null, withdrawnBy: null, withdrawnWhy: null, body: "" };
+  const item = { ...base, id: "x", kind: "proposal" as const, model: null, modelWhy: null, changes: null, onNo: null, onRedirect: null, status: "open" as const, created: "", answered: null, note: null, hiveSync: null, withdrawn: null, withdrawnBy: null, withdrawnWhy: null, body: "" };
   expect(answerMessage(item, "go", null)).toBe('Greg approved your proposal "Start a acme-api agent on TK-143" (queue item x). Go: Start acme-api on TK-143 and triage the 22 Sobelow findings.');
   expect(answerMessage(item, "no", "later")).toContain("Do not do it.\n\nHis reason: later");
   expect(answerMessage(item, "redirect", "Do the dependabot batch first.")).toContain("Do this instead: Do the dependabot batch first.");
@@ -76,7 +76,7 @@ test("a proposal carries the filer's model and its reason; a decision refuses on
 });
 
 test("a go names a model only when it starts work: Greg's pick, else the filer's, else the default", () => {
-  const item = { ...base, id: "x", kind: "proposal" as const, model: null, modelWhy: null, onNo: null, onRedirect: null, status: "open" as const, created: "", answered: null, note: null, hiveSync: null, withdrawn: null, withdrawnBy: null, withdrawnWhy: null, body: "" };
+  const item = { ...base, id: "x", kind: "proposal" as const, model: null, modelWhy: null, changes: null, onNo: null, onRedirect: null, status: "open" as const, created: "", answered: null, note: null, hiveSync: null, withdrawn: null, withdrawnBy: null, withdrawnWhy: null, body: "" };
   expect(answerModel(item, "go", "fable", "opus")).toBe("fable");
   expect(answerModel({ ...item, model: "sonnet" }, "go", null, "opus")).toBe("sonnet");
   expect(answerModel(item, "go", null, "opus")).toBe("opus");

@@ -9,6 +9,7 @@
  * Keys do nothing while a text field has focus, or with a modifier held.
  */
 import type { QueueItem } from "../../queue";
+import { esc } from "./md";
 
 export type Consequence = { label: "Go" | "Not now" | "Redirect"; text: string; filer: boolean };
 
@@ -20,6 +21,19 @@ export function consequences(q: Pick<QueueItem, "action" | "onNo" | "onRedirect"
     { label: "Not now", text: q.onNo ?? `Nothing happens. ${name} hears your reason.`, filer: !!q.onNo },
     { label: "Redirect", text: q.onRedirect ?? `${name} gets your instruction and works from it.`, filer: !!q.onRedirect },
   ];
+}
+
+/**
+ * The top of a card under its title (D31): "What changes for you" first, when
+ * the filer said, then what each answer does. The case follows it. An item
+ * filed before `changes` existed shows only the answers.
+ */
+export function cardLead(q: Pick<QueueItem, "action" | "onNo" | "onRedirect" | "from" | "changes">, who: (name: string) => string): string {
+  const changes = q.changes
+    ? `<p class="qchanges"><b>What changes for you</b><span>${esc(q.changes)}</span></p>`
+    : "";
+  return `${changes}<ul class="qout" aria-label="What each answer does">${consequences(q, who).map((c) =>
+    `<li><b>${c.label}</b><span${c.filer ? "" : ' class="qdefault"'}>${esc(c.text)}</span></li>`).join("")}</ul>`;
 }
 
 /**

@@ -148,6 +148,12 @@ questions asked.
   obvious redirect, name it in \`on_redirect\`. The card shows ${u} what
   each answer does. When an item you know of goes stale (the work is done,
   or taken elsewhere), take it back with \`queue_withdraw\` and the reason.
+- A proposal needs \`changes\`: what changes for ${u} on go, seen from ${u}'s
+  side of the screen. Say what ${u} will see, do or stop doing differently,
+  or "Nothing visible:" and what changes underneath. Not the implementation.
+  The card shows it first.
+  Good: "The queue shows a 'What changes for you' line on every proposal."
+  Bad: "Adds a changes field to QueueItem."
 - When you wait on an answer, keep working on what does not depend on it.
 - For a second opinion, use a sub-agent.${hive ? ` Council needs ${u}'s yes.` : ""}
 

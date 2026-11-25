@@ -40,7 +40,7 @@ function fakeHive(fail: ((c: MemoryCandidate) => Error | "hang" | null) = () => 
   return { writes, sink };
 }
 
-const base = { kind: "proposal", from: "maya", title: "Start acme-api on TK-143", action: "Start acme-api on TK-143 and triage the Sobelow findings.", project: "acme-api", ticket: "TK-143" };
+const base = { kind: "proposal", from: "maya", title: "Start acme-api on TK-143", action: "Start acme-api on TK-143 and triage the Sobelow findings.", changes: "Nothing visible: the Sobelow findings get triaged.", project: "acme-api", ticket: "TK-143" };
 const at = new Date("2026-11-18T12:00:00Z");
 const precedent = (id: string) => readFile(join(home, "precedents", `${id}.md`), "utf-8");
 

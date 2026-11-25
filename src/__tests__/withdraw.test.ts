@@ -41,7 +41,7 @@ async function ticket(project: string, id: string, status: string, updated?: Dat
 
 /** A card in the shape hive's pick files (isPick). */
 const pick = (project: string, id: string, created: Date) =>
-  addItem({ kind: "proposal", from: "maya", title: `Start ${project} ${id}: ${id} title`, action: `Maya starts task agent ${project}-${id.toLowerCase()} on ${project} ${id}.`, project, ticket: id }, home, created);
+  addItem({ kind: "proposal", from: "maya", title: `Start ${project} ${id}: ${id} title`, action: `Maya starts task agent ${project}-${id.toLowerCase()} on ${project} ${id}.`, changes: "x", project, ticket: id }, home, created);
 
 /** A fake git: branches per repo path, and which repos were read. */
 function fakeGit(map: Record<string, Branch[]> = {}) {
@@ -166,7 +166,7 @@ test("rule 2: an in_progress ticket withdraws its pick, not another agent's card
   const p = await pick("contentdash", "TK-002", hoursAgo(60));
   const review = await addItem({ kind: "review", from: "contentdash-tk-002", title: "Review step 2", action: "Merge it.", project: "contentdash", ticket: "TK-002" }, home, hoursAgo(2));
   // A card from Maya that is not a pick (another action) is not a pick either.
-  const other = await addItem({ kind: "proposal", from: "maya", title: "Split TK-002", action: "Maya splits TK-002 in two.", project: "contentdash", ticket: "TK-002" }, home, hoursAgo(60));
+  const other = await addItem({ kind: "proposal", from: "maya", title: "Split TK-002", action: "Maya splits TK-002 in two.", changes: "Two smaller cards replace TK-002.", project: "contentdash", ticket: "TK-002" }, home, hoursAgo(60));
   const r = await sweep();
   expect(r.withdrawn).toEqual([{ label: "contentdash TK-002", title: p.title, reason: "TK-002 is in_progress: someone has the work", id: p.id }]);
   expect(await status(review.id)).toBe("open");
