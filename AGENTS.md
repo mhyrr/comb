@@ -38,7 +38,9 @@ comb is the work layer: Claude Code background agents, best with hive
   queues in hive memory (D13; `comb precedents sync` backfills).
 - `src/nightly.ts`: files hive's nightly picks (and asks, with `nightlyAsks`) into the queue
   (`comb nightly`, and hourly from the page server), after its sweep withdraws
-  open cards whose work is done or taken (D30).
+  open cards whose work is done or taken (D30). Then the morning wake (D31):
+  once today's hive nightly finishes, Maya hears once, recorded in
+  `~/.comb/nightly/morning.json`.
 - `src/agents.ts`: workspaces, the start path, the core contract.
 - `src/claude.ts`: the Claude Code adapter (`--bg`, `claude agents --json`).
 - `src/hive.ts`: the hive interface, including the hive MCP client the page

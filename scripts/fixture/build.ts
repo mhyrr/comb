@@ -328,7 +328,7 @@ put(join(HOME, "live.json"), JSON.stringify([
 ], null, 2) + "\n");
 
 // --- the queue -----------------------------------------------------------------
-function item(id: string, f: { kind: string; from: string; title: string; action: string; project: string; ticket: string; created: string; model?: string; modelWhy?: string; onNo?: string; onRedirect?: string }, body: string) {
+function item(id: string, f: { kind: string; from: string; title: string; action: string; project: string; ticket: string; created: string; changes?: string; model?: string; modelWhy?: string; onNo?: string; onRedirect?: string }, body: string) {
   const head = Object.entries({ id, ...f, status: "open", answered: "", note: "" }).map(([k, v]) => `${k}: ${v}`).join("\n");
   put(join(COMB, "queue", id, "item.md"), `---\n${head}\n---\n\n${body.trim()}\n`);
 }
@@ -353,6 +353,7 @@ item(`${day(180)}-review-docs-site-search`, {
 item(`${day(8)}-start-acme-api-tk-51-rotate-api-keys`, {
   kind: "proposal", from: "maya", title: "Start acme-api TK-51: rotate API keys", project: "acme-api", ticket: "TK-51", created: ago(8),
   action: "I start task agent acme-api-tk51 on acme-api TK-51.",
+  changes: "Partners' API keys start expiring after 90 days, and each one gets an email a week before.",
   model: "sonnet", modelWhy: "The design is settled; this is careful plumbing, not judgment.",
 },"Next in line once TK-42 lands, and it touches the same middleware, so the context is fresh now. The ticket has an agreed design.");
 // A card comb's sweep took back (TK-008, D30): its ticket went in_progress in the user's own session.

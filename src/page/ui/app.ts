@@ -9,7 +9,7 @@ import type { FeedEvent } from "../../transcript";
 import type { Activity, AgentNode, Now, SessionNode, Snapshot } from "../state";
 import { esc, md as markdown } from "./md";
 import { admit, holdingPlace, patchList, setHtml } from "./patch";
-import { consequences, isTyping, keyIntent, splitQueue, stepCard } from "./cards";
+import { cardLead, isTyping, keyIntent, splitQueue, stepCard } from "./cards";
 import { treeOrder } from "./tree";
 import { pullsState, refreshPulls } from "./pulls";
 import { stripFigures, stripHtml } from "./strip";
@@ -933,8 +933,7 @@ function queueCard(q: QueueItem): string {
   return `<article class="qcard kind-${q.kind}${cur ? " cur" : ""}" data-q="${esc(q.id)}" tabindex="-1" ${k("card")}>
     <div class="qmeta"><span class="qkind">${esc(kindName[q.kind] ?? q.kind)}</span><span>from <b>${esc(who(q.from))}</b></span>${where ? `<span>${esc(where)}</span>` : ""}${agoTag(q.created, true)}</div>
     <h3>${esc(q.title)}</h3>
-    <ul class="qout" aria-label="What each answer does">${consequences(q, who).map((c) =>
-      `<li><b>${c.label}</b><span${c.filer ? "" : ' class="qdefault"'}>${esc(c.text)}</span></li>`).join("")}</ul>
+    ${cardLead(q, who)}
     ${q.body ? (q.body.length > 180 || q.body.includes("\n")
       ? `<div class="qbody prose${s.more ? " open" : ""}">${md(q.body)}</div><button type="button" class="qmore" data-qa="more" ${k("more")}>${s.more ? "Less" : "Read the case"}</button>`
       : `<div class="qbody prose open">${md(q.body)}</div>`) : ""}

@@ -87,6 +87,7 @@ test("fresh picks become proposals from Maya, asks become decisions, and the res
     project: "mobile-app",
     title: "Start mobile-app TK-042: Export ignores the dark theme",
     action: "Maya starts task agent mobile-app-tk-042 on mobile-app TK-042.",
+    changes: "Nothing visible yet: a task agent works mobile-app TK-042 (Export ignores the dark theme) and comes back to you as a review card.",
   });
   expect(pick.body).toContain("## hive's rationale\n\nWhy TK-042.");
   const ask = items.find((i) => i.title.startsWith("hive:"))!;
@@ -177,8 +178,8 @@ test("an open queue item on the same ticket blocks a pick; the same id in anothe
     { projectId: "cli-tool", ticketId: "TK-042", selectedAt: daysAgo(0.1) },
     { projectId: "acme-api", ticketId: "TK-153", selectedAt: daysAgo(0.1) },
   ]);
-  await addItem({ kind: "proposal", from: "maya", title: "Fix the dark print (TK-042)", action: "x", project: "mobile-app" }, home);
-  await addItem({ kind: "proposal", from: "maya", title: "Admin PDF download", action: "x", project: "acme-api", ticket: "TK-153" }, home);
+  await addItem({ kind: "proposal", from: "maya", title: "Fix the dark print (TK-042)", action: "x", changes: "x", project: "mobile-app" }, home);
+  await addItem({ kind: "proposal", from: "maya", title: "Admin PDF download", action: "x", changes: "x", project: "acme-api", ticket: "TK-153" }, home);
   const r = await runNightly({ home, hiveHome, asks: true, now: NOW });
   expect(r.filed.map((f) => f.label)).toEqual(["cli-tool TK-042"]);
   expect(r.skipped.map((s) => s.reason)).toEqual([

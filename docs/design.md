@@ -503,6 +503,11 @@ that fills with honey while it works; that is the page's one ambient motion.
   grey; the filer's own are ink. The core contract asks agents to fill
   `on_no` when Not now changes something, and `on_redirect` when one redirect
   is obvious. Items filed before this read both as null.
+- **A proposal says what changes for Greg (D31, 2026-11-25).** `changes`
+  (queue_add's `changes`, `comb queue add --changes`) is required on a
+  proposal and optional on the other kinds. The card shows it first, under
+  the title and above the answers and the case, as "What changes for you".
+  Items filed before it have none and show as before.
 - **Keys (decision 9a).** J and K move the current card (outlined); G, N and
   R move focus to its Go, Not now or Redirect; Enter, the browser's own
   press of the focused button, sends. One key never answers an item. Keys do
@@ -577,6 +582,10 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   excess ask is dropped (tomorrow's briefing carries what still matters),
   while an excess pick is filed the next night if hive still picks it and
   it is under 7 days old.
+- **The morning wake (D31, 2026-11-25).** Each run also checks hive's
+  nightly for today. When it has completed, Maya gets one message:
+  "Morning proposals: today's briefing is <path>". When it failed, the
+  message says so. See D31.
 - **When it runs.** The page server runs it at start and every hour; its log
   is `~/.comb/logs/page.log`. `comb nightly` runs it by hand, and
   `comb nightly --dry-run` prints what it would file and why it skips the
@@ -840,6 +849,40 @@ and a briefing. Now comb files them as queue items from Maya (D23).
   a pick now holds until the ticket's `updated` is later than the answer,
   with no 7-day expiry: matreas TK-479 was declined on 2026-11-15 and came
   back on 2026-11-22.
+
+- **D31. Morning proposals: a proposal says what changes for Greg, and
+  comb wakes Maya after hive's nightly** (2026-11-25, TK-012, HIVE v2 §9).
+  Greg: "when a proposal goes to me, it should give me an explicit sense of
+  what's changing from a user perspective on behavior." HIVE v2 §9 replaced
+  the nightly Propose pick with small bets that any agent proposes, each with
+  a cheap spike done. hive #41 removed the Act picks on 2026-11-23, so D23's
+  bridge stopped filling the morning slot.
+  *What changes for you.* `changes` is a new queue field, required when kind
+  is proposal. `addItem` refuses a proposal without it and says what to
+  write, so the MCP tool, the new `comb queue add` and comb's own filers all
+  meet the same rule. It holds the behaviour change from Greg's side of the
+  screen: what he will see, do or stop doing, or "Nothing visible:" and what
+  changes underneath. It is not the implementation. The core contract gives
+  one good example ("The queue shows a 'What changes for you' line on every
+  proposal.") and one bad one ("Adds a changes field to QueueItem."). The
+  card shows it first. A nightly pick's line says a task agent starts and
+  comes back as a review.
+  *The morning wake.* The hourly run (page server, and `comb nightly`) reads
+  how today's hive nightly stands (`readNightlyRun` in `src/hive.ts`).
+  Complete means `~/.hive/memory/runs/<date>/.complete` exists:
+  `scripts/nightly.sh` touches it only after a successful run. Failed means
+  no stamp, and the last run for the date in `~/.hive/logs/nightly.log` ended
+  with `=== HIVE nightly FAILED` or `TIMED OUT`. A started run with no end
+  line is running. comb stays silent while it is running or has not started.
+  The briefing is `~/.hive/briefings/<date>.md`, else the run folder's
+  `briefing.md`. Each outcome is sent once a day, recorded in
+  `~/.comb/nightly/morning.json`. hive retries a failed night at 08:30 and
+  12:30, so a failure and then a completed retry are two messages: the
+  second carries the briefing that the first said was missing. A failed
+  delivery is not recorded, so the next hour tries again. The dry run is
+  `comb nightly --dry-run`. Maya's pass (she reads the briefing, does the
+  spike for each bet and files 0 to 3 proposals) is in her checklist, not in
+  code.
 
 ## 11. Open questions
 

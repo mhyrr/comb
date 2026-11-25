@@ -160,6 +160,9 @@ The page binds to `127.0.0.1` only, and refuses any request whose `Host` or
 Agents do not bury questions in prose. When something needs you (a proposal,
 a decision, a review or a blocker), the agent files it with `queue_add`: a
 title, exactly what it will do on "go", and its case with a recommendation.
+A proposal also says what changes for you if you say go ("The queue shows a
+'What changes for you' line on every proposal"), and its card shows that
+first.
 
 You answer with **Go**, **Not now** (with an optional reason) or
 **Redirect** (with an instruction). The answer goes back to the agent that

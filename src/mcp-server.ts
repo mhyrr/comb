@@ -93,6 +93,12 @@ server.registerTool("queue_add", {
     kind: z.enum(["proposal", "decision", "review", "blocker"]),
     title: z.string().describe(`What ${who.name} says yes or no to, in under 80 characters. E.g. 'Start an acme-api agent on TK-143'.`),
     action: z.string().describe("Exactly what you will do on go, in one sentence."),
+    changes: z.string().optional().describe(
+      `Required for a proposal: what changes for ${who.name} if they say go, from their side of the screen, in one or two ` +
+      `sentences. What they will see, do or stop doing differently; or "Nothing visible:" plus what changes underneath. ` +
+      `Not the implementation. Good: "The queue shows a 'What changes for you' line on every proposal." ` +
+      `Bad: "Adds a changes field to QueueItem." The card shows it first, above your case.`,
+    ),
     why: z.string().describe("Your case in Markdown: why now, your recommendation, the evidence, what it costs."),
     project: z.string().optional().describe("The project, if there is one."),
     ticket: z.string().optional().describe("The ticket ID, if there is one."),
@@ -110,10 +116,10 @@ server.registerTool("queue_add", {
       "The redirect you expect, if there is an obvious one: 'Say Redis and I ship Redis instead.' Omit it otherwise.",
     ),
   },
-}, async ({ kind, title, action, why, project, ticket, model, model_why, on_no, on_redirect }) => {
+}, async ({ kind, title, action, changes, why, project, ticket, model, model_why, on_no, on_redirect }) => {
   try {
     const from = (await caller()) ?? "unknown";
-    const item = await addItem({ kind, from, title, action, body: why, project, ticket, model, modelWhy: model_why, onNo: on_no, onRedirect: on_redirect });
+    const item = await addItem({ kind, from, title, action, changes, body: why, project, ticket, model, modelWhy: model_why, onNo: on_no, onRedirect: on_redirect });
     return { content: [{ type: "text" as const, text: `Filed ${item.id}. The answer will come to "${from}" as a message.` }] };
   } catch (err) {
     return fail(err);

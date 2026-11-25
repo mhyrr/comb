@@ -10,7 +10,7 @@
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
 
@@ -402,6 +402,52 @@ export function readBriefing(date: string, hiveHome: string = resolveHiveHome())
   } catch {
     return null; // intentional: no briefing for that day
   }
+}
+
+/**
+ * How hive's nightly for `date` stands (D31), from what ~/.hive/scripts/nightly.sh leaves:
+ *   - "complete": it touched memory/runs/<date>/.complete, which it does only on success;
+ *   - "failed": no stamp, and its last run for the date ended with a FAILED or TIMED OUT line
+ *     in logs/nightly.log (hive retries at its next firing, 08:30 and 12:30);
+ *   - "running": a run for the date started and has not ended;
+ *   - "none": no run for the date yet.
+ */
+export type NightlyRun = {
+  state: "complete" | "failed" | "running" | "none";
+  /** The day's briefing: briefings/<date>.md, else runs/<date>/briefing.md; null when neither exists. */
+  briefing: string | null;
+  /** The log's last line for the run, e.g. "=== HIVE nightly FAILED (rc=1) at 10:47:17 ===". */
+  line: string | null;
+};
+
+/** How much of the log's end to read: one run writes a few kB; the file grows for months. */
+const NIGHTLY_LOG_TAIL = 256 * 1024;
+
+export function readNightlyRun(date: string, hiveHome: string = resolveHiveHome()): NightlyRun {
+  const briefing = [join(hiveHome, "briefings", `${date}.md`), join(hiveHome, "memory", "runs", date, "briefing.md")].find((p) => existsSync(p)) ?? null;
+  if (existsSync(join(hiveHome, "memory", "runs", date, ".complete"))) return { state: "complete", briefing, line: null };
+  let log = "";
+  try {
+    const path = join(hiveHome, "logs", "nightly.log");
+    const size = statSync(path).size;
+    const fd = openSync(path, "r");
+    try {
+      const n = Math.min(size, NIGHTLY_LOG_TAIL);
+      const buf = Buffer.alloc(n);
+      readSync(fd, buf, 0, n, size - n);
+      log = buf.toString("utf-8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return { state: "none", briefing, line: null }; // intentional: no log yet means no run yet
+  }
+  const lines = log.split("\n");
+  const start = lines.findLastIndex((l) => l.startsWith(`=== HIVE nightly: ${date} `) && !l.includes("already complete"));
+  if (start < 0) return { state: "none", briefing, line: null };
+  const end = lines.slice(start + 1).find((l) => /^=== HIVE nightly (FAILED|TIMED OUT)\b/.test(l));
+  if (end) return { state: "failed", briefing, line: end.trim() };
+  return { state: "running", briefing, line: lines[start]!.trim() };
 }
 
 /** The numbered items under "## What needs your attention", one string each. */

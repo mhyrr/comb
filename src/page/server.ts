@@ -32,7 +32,7 @@ import { findClaudeBin, listLiveSessions, runProcess, type LiveSession, type Run
 import { findGhBin, forPage, PullWatch } from "../github";
 import { detectHive, HiveClient, hiveProjectPaths, listHiveProjects, type HiveSetup, type Ticket } from "../hive";
 import { resolveCombHome } from "../paths";
-import { formatNightly, NIGHTLY_FROM, runNightly } from "../nightly";
+import { formatMorning, formatNightly, NIGHTLY_FROM, runMorning, runNightly } from "../nightly";
 import { isModel, MODELS } from "../models";
 import { answerModel, listItems, readItem, recordAnswer } from "../queue";
 import { answerItem } from "./answer";
@@ -156,6 +156,9 @@ export function startPage(opts: PageOpts = {}) {
         const notify = (message: string) => sendToAgent({ name: NIGHTLY_FROM, message, home, claudeBin: claude, run });
         const r = await runNightly({ home, hiveHome: setup.home, notify });
         if (r.filed.length || r.deferred.length || r.withdrawn.length) console.log(`${new Date().toISOString()} ${formatNightly(r)}`);
+        // The morning wake (D31): once hive's nightly for today finishes, Maya hears once.
+        const m = await runMorning({ home, hiveHome: setup.home, notify });
+        if (!/^(silent|already)/.test(m.outcome)) console.log(`${new Date().toISOString()} ${formatMorning(m)}`);
       } catch (err) {
         console.error("comb page: hive nightly filing failed:", err);
       } finally {

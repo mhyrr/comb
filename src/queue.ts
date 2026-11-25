@@ -37,6 +37,12 @@ export type QueueItem = {
   onNo: string | null;
   /** What a redirect is likely to be, when the filer can name it ("Say Redis and it ships Redis"). Null: the page's default line. */
   onRedirect: string | null;
+  /**
+   * What changes for Greg if he says go, from his side of the screen: what he
+   * will see, do or stop doing (D31). Required on a proposal; null on items
+   * filed before it existed, and optional on the other kinds.
+   */
+  changes: string | null;
   project: string | null;
   ticket: string | null;
   status: Status;
@@ -70,7 +76,7 @@ export type QueueItem = {
   body: string;
 };
 
-const FIELDS = ["id", "kind", "from", "title", "action", "onNo", "onRedirect", "project", "ticket", "model", "modelWhy", "status", "created", "answered", "note", "hiveSync", "withdrawn", "withdrawnBy", "withdrawnWhy"] as const;
+const FIELDS = ["id", "kind", "from", "title", "action", "changes", "onNo", "onRedirect", "project", "ticket", "model", "modelWhy", "status", "created", "answered", "note", "hiveSync", "withdrawn", "withdrawnBy", "withdrawnWhy"] as const;
 export { picksModel };
 
 /**
@@ -103,6 +109,7 @@ export function parseItem(text: string): QueueItem {
     from: f.from ?? "",
     title: f.title ?? "",
     action: f.action ?? "",
+    changes: orNull(f.changes),
     onNo: orNull(f.onNo),
     onRedirect: orNull(f.onRedirect),
     project: orNull(f.project),
@@ -140,7 +147,15 @@ export type NewItem = {
   onNo?: string | null;
   /** What a redirect is likely to say, if the filer can name it. One sentence. */
   onRedirect?: string | null;
+  /** What changes for Greg on go, in plain words (D31). Required for a proposal. */
+  changes?: string | null;
 };
+
+/** The refusal a proposal without `changes` gets (D31): what to write, with one good example. */
+export const CHANGES_REQUIRED =
+  "A proposal needs `changes`: what changes for Greg if he says go, from his side of the screen. " +
+  "Say what he will see, do or stop doing differently, or \"nothing visible\" plus what changes underneath. " +
+  "Not the implementation. E.g. \"The queue shows a 'What changes for you' line on every proposal.\"";
 
 export async function addItem(n: NewItem, home?: string, now = new Date()): Promise<QueueItem> {
   if (!(KINDS as readonly string[]).includes(n.kind)) {
@@ -148,6 +163,8 @@ export async function addItem(n: NewItem, home?: string, now = new Date()): Prom
   }
   if (!oneLine(n.title)) throw new UsageError("Give the item a title: what Greg is saying yes or no to.");
   if (!oneLine(n.action)) throw new UsageError("Say what you will do when Greg says go.");
+  const changes = n.changes ? oneLine(n.changes) || null : null;
+  if (n.kind === "proposal" && !changes) throw new UsageError(CHANGES_REQUIRED);
   const model = n.model?.trim() || null;
   if (model && !isModel(model)) throw new UsageError(`model must be one of ${MODELS.join(", ")}`);
   if (model && (n.kind === "decision" || n.kind === "blocker")) {
@@ -163,6 +180,7 @@ export async function addItem(n: NewItem, home?: string, now = new Date()): Prom
     from: n.from,
     title: oneLine(n.title),
     action: oneLine(n.action),
+    changes,
     onNo: n.onNo ? oneLine(n.onNo) || null : null,
     onRedirect: n.onRedirect ? oneLine(n.onRedirect) || null : null,
     project: n.project?.trim() || null,
