@@ -176,6 +176,14 @@ export function parseBackgrounded(stdout: string): string | null {
 
 export type Started = { id: string; sessionId: string; cwd: string };
 
+/** Claude Code refused to start in `cwd` because its trust prompt was never accepted there. */
+export class NotTrustedError extends Error {
+  constructor(readonly cwd: string) {
+    super(`Claude has not trusted ${cwd}. Open claude there once and accept the trust prompt, then start the agent again.`);
+    this.name = "NotTrustedError";
+  }
+}
+
 export async function startBackground(
   claude: string,
   spec: StartSpec,
@@ -185,9 +193,7 @@ export async function startBackground(
   const res = await run(buildStartArgv(claude, spec), { cwd: spec.cwd, env: childEnv() });
   const out = `${res.stdout}\n${res.stderr}`;
   if (/not trusted/i.test(out)) {
-    throw new Error(
-      `Claude has not trusted ${spec.cwd}. Open claude there once and accept the trust prompt, then start the agent again.`,
-    );
+    throw new NotTrustedError(spec.cwd);
   }
   const id = parseBackgrounded(out);
   if (res.code !== 0 || !id) {

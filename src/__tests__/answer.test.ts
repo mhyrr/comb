@@ -74,3 +74,15 @@ test("a delivered answer has no notice and sends once", async () => {
   expect(r).toMatchObject({ woke: true, notice: null });
   expect(s.sent).toHaveLength(1);
 });
+
+test("an answer sendToAgent already forwarded to the parent says so, and is not sent twice", async () => {
+  const item = await addItem(base, home);
+  const sent: string[] = [];
+  const send = async (name: string) => {
+    sent.push(name);
+    return { woke: false, forwardedTo: "maya", reason: "Claude Code has not trusted /w" };
+  };
+  const r = await answer(item, send);
+  expect(r).toMatchObject({ woke: false, notice: "Recorded. comb-public-ready couldn't be woken, so maya was told." });
+  expect(sent).toEqual(["comb-public-ready"]);
+});

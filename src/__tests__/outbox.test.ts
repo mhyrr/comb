@@ -59,6 +59,11 @@ test("a failed send keeps its text, says why, and Retry delivers it", async () =
   expect(g.calls).toEqual(["Ship it", "Ship it"]);
 });
 
+test("a message the agent could not be woken for says where it went, not Sent", () => {
+  const item: Outgoing = { id: "o", to: "acme-api", text: "hi", at: T0, state: "sent", woke: false, forwardedTo: "maya" };
+  expect(sendStatus(item, "acme-api")).toBe("Not delivered: acme-api could not be woken. maya has the message instead.");
+});
+
 test("sending the same text again replaces the failed copy instead of doubling it", async () => {
   const g = gate();
   const box = new Outbox(g.post);

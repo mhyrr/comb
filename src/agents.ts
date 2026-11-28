@@ -23,6 +23,7 @@ import {
   isEnded,
   stopSession,
   listLiveSessions,
+  NotTrustedError,
   relayMessage,
   runProcess,
   startBackground,
@@ -243,6 +244,13 @@ function undoubleWorktree(cwd: string, name: string): string {
   let out = cwd;
   while (out.endsWith(suffix + suffix)) out = out.slice(0, -suffix.length);
   return out;
+}
+
+/** The repo that held `<repo>/.claude/worktrees/<name>`, or null when `cwd` has another shape. */
+export function worktreeRepo(cwd: string, name: string): string | null {
+  const suffix = sep + join(".claude", "worktrees", name);
+  const path = undoubleWorktree(cwd, name);
+  return path.endsWith(suffix) && path.length > suffix.length ? path.slice(0, -suffix.length) : null;
 }
 
 export type StartAgentOpts = {
@@ -487,6 +495,8 @@ export type SendOpts = {
   from?: string | null;
   /** Greg wrote it on comb's page. He reads the answer there, in the agent's transcript. */
   fromPage?: boolean;
+  /** A message forwarded because another agent could not be woken. It is not forwarded again. */
+  forwarded?: boolean;
   home?: string;
   claudeBin?: string;
   run?: Run;
@@ -498,7 +508,16 @@ export type SendOpts = {
  * session gets it through the relay; an ended one is resumed with the
  * message as its prompt, so it wakes with its history and the message.
  */
-export async function sendToAgent(opts: SendOpts): Promise<{ woke: boolean; session: AgentSession | null }> {
+export type SendResult = {
+  woke: boolean;
+  session: AgentSession | null;
+  /** The agent could not be woken, so the message went to this agent (its parent) instead. */
+  forwardedTo?: string;
+  /** Why the agent could not be woken. Set with `forwardedTo`. */
+  reason?: string;
+};
+
+export async function sendToAgent(opts: SendOpts): Promise<SendResult> {
   const name = opts.name;
   const home = opts.home ?? resolveCombHome();
   const run = opts.run ?? runProcess;
@@ -542,21 +561,70 @@ export async function sendToAgent(opts: SendOpts): Promise<{ woke: boolean; sess
     return { woke: false, session: previous };
   }
   // A finished worktree agent's folder is removed once its commits land.
-  // Its history lived there, so it wakes as a new session in its workspace,
-  // told why, and later wakes resume there.
+  // Its history lived there, so it wakes as a new session in the repo that
+  // held the worktree. Claude Code trusts that folder, because the agent was
+  // first started there. Later wakes resume there. Its workspace is never
+  // trusted, so any other missing folder cannot be woken (TK-011).
+  const sender = opts.fromPage ? "greg (page)" : opts.from ?? "unknown";
   const gone = previous && !existsSync(previous.cwd) ? previous.cwd : null;
+  const repo = gone ? worktreeRepo(gone, name) : null;
+  if (previous && gone && !(repo && existsSync(repo))) {
+    return undeliverable(opts, previous, home, sender, repo
+      ? `its worktree ${gone} and the repo that held it are both gone`
+      : `its working directory ${gone} no longer exists`);
+  }
   const prompt = gone
-    ? `(Your working directory ${gone} no longer exists, so this is a new session in your workspace. Read charter.md, the end of log.md and reports/ for your context.)\n\n${text}`
+    ? `(Your working directory ${gone} no longer exists: its worktree was removed. This is a new session in the repo root, ${repo}. Do not edit files here; make a worktree (EnterWorktree) before any edit. Read charter.md, the end of log.md and reports/ in your workspace for your context.)\n\n${text}`
     : text;
-  const { session } = await startAgent({
-    name, prompt, home, claudeBin: claude, run, wait: opts.wait, ...(gone ? { cwd: agentDir(name, home) } : {}),
-  });
+  let session: AgentSession;
+  try {
+    ({ session } = await startAgent({
+      name, prompt, home, claudeBin: claude, run, wait: opts.wait, ...(repo ? { cwd: repo } : {}),
+    }));
+  } catch (err) {
+    if (err instanceof NotTrustedError && previous) {
+      return undeliverable(opts, previous, home, sender, `Claude Code has not trusted ${err.cwd}, so it could not start there`);
+    }
+    throw err;
+  }
   await appendFile(
     join(agentDir(name, home), "log.md"),
-    `- ${new Date().toISOString()} message from ${opts.fromPage ? "greg (page)" : opts.from ?? "unknown"} delivered (woke)\n`,
+    `- ${new Date().toISOString()} message from ${sender} delivered (woke)\n`,
     "utf-8",
   );
   return { woke: true, session };
+}
+
+/**
+ * An agent that cannot be woken keeps the message in its log.md, and its
+ * parent gets the message with the reason, so nothing is lost and no one
+ * waits on a session that never started (TK-011). An agent whose parent is
+ * Greg goes to maya, who reads logs for him. Throws only when there is no
+ * one to tell, or when the message was already a forward.
+ */
+async function undeliverable(
+  opts: SendOpts,
+  previous: AgentSession,
+  home: string,
+  sender: string,
+  reason: string,
+): Promise<SendResult> {
+  const name = opts.name;
+  const log = join(agentDir(name, home), "log.md");
+  const quoted = opts.message.split("\n").map((line) => `  > ${line}`).join("\n");
+  await appendFile(log, `- ${new Date().toISOString()} message from ${sender} not delivered: ${reason}. The message:\n${quoted}\n`, "utf-8");
+
+  const parent = previous.parent !== GREG ? previous.parent : "maya";
+  if (opts.forwarded || parent === name || !isAgent(parent, home)) {
+    throw new UsageError(`Could not wake ${name}: ${reason}. The message is in ${log}.`);
+  }
+  const from = opts.fromPage ? `${human(readCombConfig(home)).Name}, on the page` : opts.from ?? "someone";
+  const message = `comb could not wake "${name}" to give it a message from ${from}: ${reason}. The message is also in ${log}. It was:\n\n${opts.message}`;
+  const { woke } = await sendToAgent({
+    name: parent, message, forwarded: true, home, claudeBin: opts.claudeBin, run: opts.run, wait: opts.wait,
+  });
+  await appendFile(log, `- ${new Date().toISOString()} that message went to ${parent} instead\n`, "utf-8");
+  return { woke, session: previous, forwardedTo: parent, reason };
 }
 
 function isAgent(name: string, home: string): boolean {

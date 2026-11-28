@@ -20,6 +20,8 @@ export type Outgoing = {
   state: OutState;
   /** The agent was asleep and the send is waking it. */
   woke?: boolean;
+  /** The agent could not be woken; its parent got the message instead (TK-011). */
+  forwardedTo?: string;
   error?: string;
 };
 
@@ -117,6 +119,7 @@ export class BoxWatch {
 export function sendStatus(o: Outgoing, name: string): string {
   if (o.state === "sending") return "Sending…";
   if (o.state === "failed") return `Not sent. ${o.error ?? "The send failed."}`;
+  if (o.forwardedTo) return `Not delivered: ${name} could not be woken. ${o.forwardedTo} has the message instead.`;
   return o.woke ? `Sent. ${name} was asleep and is waking up.` : "Sent";
 }
 
@@ -129,7 +132,7 @@ export class Outbox {
   private seq = 0;
   private listeners = new Set<() => void>();
 
-  constructor(private readonly post: (to: string, text: string) => Promise<{ ok: true; woke: boolean } | { ok: false; error: string }>) {}
+  constructor(private readonly post: (to: string, text: string) => Promise<{ ok: true; woke: boolean; forwardedTo?: string } | { ok: false; error: string }>) {}
 
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
@@ -180,6 +183,7 @@ export class Outbox {
     if (r.ok) {
       item.state = "sent";
       item.woke = r.woke;
+      item.forwardedTo = r.forwardedTo;
     } else {
       item.state = "failed";
       item.error = r.error;

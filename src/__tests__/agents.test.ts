@@ -404,26 +404,101 @@ describe("comb agents", () => {
     expect(claude.calls.some((c) => c.argv[1] === "-p")).toBe(false);
   });
 
-  test("send to an agent whose worktree was removed wakes it in its workspace, told why", async () => {
+  test("send to an agent whose worktree was removed wakes it in the repo root, told not to edit there", async () => {
     const claude = fakeClaude();
     const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
-    const tree = join(root, "worktree");
+    const first = await startAgent({ name: "acme-api", charter: "c", cwd: repo, worktree: true, parent: "maya", ...base });
+    const tree = join(repo, ".claude", "worktrees", "acme-api");
+    expect(first.session.cwd).toBe(tree);
+    // The fake never makes the worktree folder: it is gone, as after a merge.
+    expect(existsSync(tree)).toBe(false);
+    claude.sessions[0] = { ...claude.sessions[0]!, kind: "background", state: "done", status: undefined };
+
+    const result = await sendToAgent({ name: "acme-api", message: "close out", from: "maya", ...base });
+    expect(result.woke).toBe(true);
+    expect(result.forwardedTo).toBeUndefined();
+    const bg = claude.calls.filter((c) => c.argv[1] === "--bg").at(-1)!;
+    // The repo is trusted: the agent was first started there.
+    expect(bg.cwd).toBe(repo);
+    // Its history lived in the removed folder, so this is a new session, and not a new worktree.
+    expect(bg.argv).not.toContain("--resume");
+    expect(bg.argv).not.toContain("-w");
+    const prompt = bg.argv.at(-1)!;
+    expect(prompt).toContain(`${tree} no longer exists`);
+    expect(prompt).toContain(`new session in the repo root, ${repo}`);
+    expect(prompt).toContain("Do not edit files here; make a worktree (EnterWorktree) before any edit.");
+    expect(prompt).toContain("close out");
+    // The next wake resumes there, and keeps its parent.
+    expect(result.session!.cwd).toBe(repo);
+    expect(result.session!.parent).toBe("maya");
+    expect(await readFile(join(agentDir("acme-api", home), "log.md"), "utf-8")).toContain("message from maya delivered (woke)");
+  });
+
+  test("an agent whose missing folder is not a worktree is not woken: its log keeps the message and its parent gets it", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    Object.assign(claude.sessions.find((s) => s.name === "maya")!, { kind: "background", state: "blocked", status: "idle" });
+    const tree = join(root, "elsewhere");
     await mkdir(tree, { recursive: true });
     await startAgent({ name: "acme-api", charter: "c", cwd: tree, parent: "maya", ...base });
-    claude.sessions[0] = { ...claude.sessions[0]!, kind: "background", state: "done", status: undefined };
+    Object.assign(claude.sessions.find((s) => s.name === "acme-api")!, { kind: "background", state: "done", status: undefined });
+    await rm(tree, { recursive: true });
+    const starts = claude.calls.filter((c) => c.argv[1] === "--bg").length;
+
+    const result = await sendToAgent({ name: "acme-api", message: "close out\nthen report", from: "comb-c8", ...base });
+    expect(result).toMatchObject({ woke: false, forwardedTo: "maya", reason: `its working directory ${tree} no longer exists` });
+    // No start in the workspace, which Claude Code never trusted.
+    expect(claude.calls.filter((c) => c.argv[1] === "--bg")).toHaveLength(starts);
+    const log = await readFile(join(agentDir("acme-api", home), "log.md"), "utf-8");
+    expect(log).toContain(`message from comb-c8 not delivered: its working directory ${tree} no longer exists. The message:\n  > close out\n  > then report\n`);
+    expect(log).toContain("that message went to maya instead");
+    const relay = claude.calls.filter((c) => c.argv[1] === "-p").at(-1)!;
+    expect(relay.stdin).toContain(`comb could not wake "acme-api" to give it a message from comb-c8: its working directory ${tree} no longer exists.`);
+    expect(relay.stdin).toContain("close out\nthen report");
+    expect(await readFile(join(agentDir("maya", home), "log.md"), "utf-8")).toContain("message from unknown delivered");
+  });
+
+  test("a wake Claude Code refuses as not trusted goes to the log and the parent, not to the caller as an error", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    Object.assign(claude.sessions.find((s) => s.name === "maya")!, { kind: "background", state: "blocked", status: "idle" });
+    await startAgent({ name: "acme-api", charter: "c", cwd: repo, worktree: true, parent: "maya", ...base });
+    Object.assign(claude.sessions.find((s) => s.name === "acme-api")!, { kind: "background", state: "done", status: undefined });
+    claude.failBg(() => ({ code: 1, stdout: "", stderr: "Error: this workspace is not trusted.\n" }));
+
+    const result = await sendToAgent({ name: "acme-api", message: "the PR has a comment", fromPage: true, ...base });
+    expect(result.woke).toBe(false);
+    expect(result.forwardedTo).toBe("maya");
+    expect(result.reason).toBe(`Claude Code has not trusted ${repo}, so it could not start there`);
+    // It did try the repo root first.
+    expect(claude.calls.filter((c) => c.argv[1] === "--bg").at(-1)!.cwd).toBe(repo);
+    const log = await readFile(join(agentDir("acme-api", home), "log.md"), "utf-8");
+    expect(log).toContain(`message from greg (page) not delivered: Claude Code has not trusted ${repo}`);
+    expect(log).toContain("  > the PR has a comment");
+    const relay = claude.calls.filter((c) => c.argv[1] === "-p").at(-1)!;
+    expect(relay.stdin).toContain('comb could not wake "acme-api" to give it a message from Greg, on the page');
+    expect(relay.stdin).toContain("the PR has a comment");
+  });
+
+  test("an unwakeable agent whose parent is Greg goes to maya; with no maya it fails, with the message logged", async () => {
+    const claude = fakeClaude();
+    const base = { home, claudeBin: "claude", run: claude.run, wait: noWait };
+    const tree = join(root, "elsewhere");
+    await mkdir(tree, { recursive: true });
+    await startAgent({ name: "notes", charter: "c", cwd: tree, ...base });
+    Object.assign(claude.sessions.find((s) => s.name === "notes")!, { kind: "background", state: "done", status: undefined });
     await rm(tree, { recursive: true });
 
-    const { woke, session } = await sendToAgent({ name: "acme-api", message: "close out", from: "maya", ...base });
-    expect(woke).toBe(true);
-    const bg = claude.calls.filter((c) => c.argv[1] === "--bg").at(-1)!;
-    expect(bg.cwd).toBe(agentDir("acme-api", home));
-    // Its history lived in the removed folder, so this is a new session.
-    expect(bg.argv).not.toContain("--resume");
-    expect(bg.argv.at(-1)).toContain(`${tree} no longer exists`);
-    expect(bg.argv.at(-1)).toContain("close out");
-    // The next wake resumes there, and keeps its parent.
-    expect(session!.cwd).toBe(agentDir("acme-api", home));
-    expect(session!.parent).toBe("maya");
+    await expect(sendToAgent({ name: "notes", message: "hi", fromPage: true, ...base }))
+      .rejects.toThrow(`Could not wake notes: its working directory ${tree} no longer exists.`);
+    expect(await readFile(join(agentDir("notes", home), "log.md"), "utf-8")).toContain("not delivered");
+
+    await startAgent({ name: "maya", charter: "c", cwd: repo, ...base });
+    Object.assign(claude.sessions.find((s) => s.name === "maya")!, { kind: "background", state: "blocked", status: "idle" });
+    const result = await sendToAgent({ name: "notes", message: "hi again", fromPage: true, ...base });
+    expect(result.forwardedTo).toBe("maya");
   });
 
   test("send reaches a session that is not an agent, such as Greg's", async () => {

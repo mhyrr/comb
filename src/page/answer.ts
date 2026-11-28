@@ -5,7 +5,7 @@ export type AnswerDeps = {
   /** Records the answer and its precedent (recordAnswer, bound to the page's home and sink). */
   record: () => Promise<QueueItem>;
   /** Delivers a message to an agent by name (sendToAgent). */
-  send: (name: string, message: string) => Promise<{ woke: boolean }>;
+  send: (name: string, message: string) => Promise<{ woke: boolean; forwardedTo?: string; reason?: string }>;
   home: string;
 };
 
@@ -27,8 +27,12 @@ export async function answerItem(
   const done = await deps.record();
   const message = answerMessage(item, answer, note, model);
   try {
-    const { woke } = await deps.send(item.from, message);
-    return { item: done, woke, notice: null };
+    const sent = await deps.send(item.from, message);
+    // sendToAgent already gave it to the filer's parent, with why (TK-011).
+    if (sent.forwardedTo) {
+      return { item: done, woke: false, notice: `Recorded. ${item.from} couldn't be woken, so ${sent.forwardedTo} was told.` };
+    }
+    return { item: done, woke: sent.woke, notice: null };
   } catch (err) {
     const why = oneLine((err as Error).message);
     const recorded = await readAgentSession(item.from, deps.home).catch(() => null);

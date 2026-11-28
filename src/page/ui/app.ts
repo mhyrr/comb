@@ -283,7 +283,7 @@ function pinToBottom(el: HTMLElement | null) {
 
 // ---------------------------------------------------------------- composer
 
-type SendResult = { ok: true; woke: boolean } | { ok: false; error: string };
+type SendResult = { ok: true; woke: boolean; forwardedTo?: string } | { ok: false; error: string };
 
 async function send(to: string, message: string): Promise<SendResult> {
   try {
@@ -293,7 +293,9 @@ async function send(to: string, message: string): Promise<SendResult> {
       body: JSON.stringify({ to, message }),
     });
     const data = await res.json();
-    return res.ok ? { ok: true, woke: !!data.woke } : { ok: false, error: data.error ?? "Could not send." };
+    return res.ok
+      ? { ok: true, woke: !!data.woke, ...(data.forwardedTo ? { forwardedTo: String(data.forwardedTo) } : {}) }
+      : { ok: false, error: data.error ?? "Could not send." };
   } catch {
     return { ok: false, error: "comb's server is not answering. Is `comb page` still running?" };
   }
