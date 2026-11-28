@@ -18,7 +18,7 @@ import { toolsHtml, type ToolsPayload } from "./tools";
 import { registerCard } from "./card";
 import { nextCell } from "./roving";
 import { parseTicketText, ticketSummary } from "./ticket-text";
-import { BoxWatch, Outbox, sendStatus, type Outgoing } from "./outbox";
+import { BoxWatch, inSendOrder, Outbox, sendStatus, type Outgoing } from "./outbox";
 import { usageHtml, wireUsage, type UsagePayload } from "./usage";
 import { modelLabel, MODELS, picksModel } from "../../models";
 
@@ -582,8 +582,16 @@ function renderChat() {
     const html: string[] = [];
     let day = "";
     const bl = blocks(mayaFeed.events);
-    bl.forEach((b, i) => {
-      if (b.k === "idle") return;
+    // Greg's messages the transcript has not caught up with yet, each at its send time.
+    outbox.settle("maya", mayaFeed.events);
+    for (const row of inSendOrder(bl, outbox.for("maya"))) {
+      if ("out" in row) {
+        const o = row.out;
+        html.push(`<div class="msg greg out-${o.state}" data-out="${esc(o.id)}"><div><div class="bubble prose">${md(o.text)}</div>${outStatus(o, "maya")}</div></div>`);
+        continue;
+      }
+      const b = row.block;
+      if (b.k === "idle") continue;
       const d = dayOf(b.at);
       if (d && d !== day) { html.push(`<div class="day">${esc(d)}</div>`); day = d; }
       if (b.k === "in") {
@@ -593,7 +601,7 @@ function renderChat() {
       } else if (b.k === "say") {
         html.push(`<div class="msg maya-say prose">${md(b.text)}</div>`);
       } else if (b.k === "tools") {
-        const live = working && i === bl.length - 1;
+        const live = working && b === bl.at(-1);
         const running = b.tools.findLast((t) => t.status === "run") ?? (live ? b.tools.at(-1) : undefined);
         const open = chatOpen.has(b.id);
         const n = b.tools.length;
@@ -602,11 +610,6 @@ function renderChat() {
           : `${open ? "▾" : "▸"} Worked through ${n} step${n === 1 ? "" : "s"}`;
         html.push(`<div class="msg worked"><button type="button" data-group="${esc(b.id)}">${label}</button>${open ? `<ul class="tools">${b.tools.map(toolItem).join("")}</ul>` : ""}</div>`);
       }
-    });
-    // Greg's messages the transcript has not caught up with yet.
-    outbox.settle("maya", mayaFeed.events);
-    for (const o of outbox.for("maya")) {
-      html.push(`<div class="msg greg out-${o.state}" data-out="${esc(o.id)}"><div><div class="bubble prose">${md(o.text)}</div>${outStatus(o, "maya")}</div></div>`);
     }
     if (mayaFeed.problem) html.push(`<p class="problem">${esc(mayaFeed.problem)}</p>`);
     if (!html.length) html.push(`<p class="empty">Nothing yet. Tell Maya what you want taken off your plate.</p>`);
@@ -1288,7 +1291,18 @@ function renderTimeline() {
     const html: string[] = [];
     let lastClock = "";
     let day = "";
-    for (const b of blocks(feed.events)) {
+    // Greg's messages the transcript has not caught up with yet, each at its send time.
+    const to = feed.ready ? stageTo() : null;
+    if (to) outbox.settle(to, feed.events);
+    for (const row of inSendOrder(blocks(feed.events), to ? outbox.for(to) : [])) {
+      if ("out" in row) {
+        const o = row.out;
+        const at = new Date(o.at).toISOString();
+        lastClock = clock(at);
+        html.push(`<div class="ev ev-in you out-${o.state}" data-out="${esc(o.id)}"><span class="t">${gutterClock(at)}</span><div class="b"><div class="from">${esc(userName())}</div><div class="prose">${md(o.text)}</div>${outStatus(o, to!)}</div></div>`);
+        continue;
+      }
+      const b = row.block;
       const d = dayOf(b.at);
       if (d && d !== day) {
         html.push(`<div class="ev ev-idle"><span class="t"></span><div class="b">${esc(d)}</div></div>`);
@@ -1316,14 +1330,6 @@ function renderTimeline() {
         html.push(`<div class="ev ev-tools"><span class="t">${t}</span><div class="b"><ul class="tools">${
           more ? `<li><button class="expand" type="button" data-group="${esc(b.id)}">Show ${more} earlier steps</button></li>` : ""
         }${shown.map(toolItem).join("")}</ul></div></div>`);
-      }
-    }
-    // Greg's messages the transcript has not caught up with yet.
-    const to = stageTo();
-    if (to && feed.ready) {
-      outbox.settle(to, feed.events);
-      for (const o of outbox.for(to)) {
-        html.push(`<div class="ev ev-in you out-${o.state}" data-out="${esc(o.id)}"><span class="t">${gutterClock(new Date(o.at).toISOString())}</span><div class="b"><div class="from">${esc(userName())}</div><div class="prose">${md(o.text)}</div>${outStatus(o, to)}</div></div>`);
       }
     }
     if (feed.problem) html.push(`<p class="problem">${esc(feed.problem)}</p>`);

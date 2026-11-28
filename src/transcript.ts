@@ -63,6 +63,15 @@ export function parseLines(lines: string[], defaultFrom: string, cwd = ""): Feed
       continue;
     }
 
+    // A message that reaches a session mid-turn is recorded only as a queued
+    // command, stamped when it arrived (TK-013).
+    const queued = d.type === "attachment" && d.attachment?.type === "queued_command" ? d.attachment.prompt : null;
+    if (typeof queued === "string" && queued.includes("<cross-session-message")) {
+      const msg = incoming(queued, defaultFrom);
+      if (msg) out.push({ k: "in", id: uuid, at, ...msg });
+      continue;
+    }
+
     // A message that reaches an idle live session is recorded as a meta line;
     // other meta lines are harness bookkeeping.
     const content = d.message?.content;

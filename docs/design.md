@@ -273,7 +273,13 @@ not imitate it. Instead the comb server starts a one-shot
 `claude -p --model haiku --allowedTools SendMessage` that sends Greg's text
 to the agent by name. Verified 2026-11-11: delivered in about 5 seconds.
 The relay carries text only; it decides nothing. Replace it if Claude Code
-ships a native send.
+ships a native send. The relay's model retypes the text, and it does not
+always type it exactly: on 2026-11-28 it turned curly quotes into straight
+ones (TK-013). So the page never expects the transcript to hold the bytes it
+sent. A sent message matches its turn with typography folded, or by the
+screenshot files it names (`src/page/ui/outbox.ts`). A message that arrives
+mid-turn is in the transcript only as a `queued_command` attachment, which
+the page reads too.
 
 So the page can answer from the start: approve / reject / redirect with a
 reason on a queue item, and a short message to any agent.
