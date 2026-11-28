@@ -3,10 +3,17 @@
  * message at once, then drops it when the agent's transcript records the
  * real turn. No Node or DOM imports: the tests run it directly.
  *
- * The transcript has no id from the send, so a turn matches by its text and
- * time: Greg's turn with the same text (whitespace aside), recorded no
- * earlier than SKEW_MS before the send. Each turn settles one message, so
- * sending "go" twice needs two turns, and an old "go" settles nothing.
+ * The transcript has no id from the send, so a turn matches by its content and
+ * time: Greg's turn with the same text, recorded no earlier than SKEW_MS
+ * before the send. Each turn settles one message, so sending "go" twice needs
+ * two turns, and an old "go" settles nothing.
+ *
+ * The text is not always the same byte for byte. A live session gets the
+ * message through a small model that retypes it (relayMessage, claude.ts), and
+ * that model has turned curly quotes into straight ones (TK-013). So texts
+ * compare with whitespace and typography folded, and a message with a
+ * screenshot also matches the turn that names the same uploaded files, each of
+ * which has a name of its own.
  */
 
 export type OutState = "sending" | "sent" | "failed";
@@ -35,6 +42,22 @@ export const SENT_TTL_MS = 10 * 60_000;
 
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 
+/** Text as the transcript may have it: typography a retype changes, made plain. */
+const fold = (s: string) =>
+  norm(
+    s
+      .replace(/[\u2018\u2019\u201A\u201B\u2032]/g, "'")
+      .replace(/[\u201C-\u201F\u2033]/g, '"')
+      .replace(/[\u2010-\u2015\u2212]/g, "-")
+      .replace(/-{2,}/g, "-")
+      .replace(/[\u00AD\u200B-\u200D\u2060\uFEFF]/g, "")
+      .normalize("NFKC"), // ellipses, no-break spaces, ligatures
+  );
+
+/** The uploaded files a message names, as the composer writes them. "" when it has none. */
+const attachments = (s: string) =>
+  [...s.matchAll(/\[Screenshot: [^\]]*\/inbox\/([\w.-]+)\]/g)].map((m) => m[1]!).sort().join(" ");
+
 /**
  * The messages still waiting for their turn, in send order. A failed message
  * never ages out: it stays until Greg retries or sends again, or until a
@@ -43,19 +66,44 @@ const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 export function unsettled(out: readonly Outgoing[], turns: readonly Turn[], now = Date.now()): Outgoing[] {
   const mine = turns
     .filter((t) => t.k === "in" && t.from === "greg" && typeof t.text === "string" && typeof t.at === "string")
-    .map((t) => ({ text: norm(t.text!), at: Date.parse(t.at!), used: false }));
-  const left: Outgoing[] = [];
-  for (const o of [...out].sort((a, b) => a.at - b.at)) {
-    const want = norm(o.text);
-    const hit = mine.find((t) => !t.used && t.text === want && !(t.at < o.at - SKEW_MS));
-    if (hit) {
-      hit.used = true;
-      continue;
-    }
-    if (o.state === "sent" && now - o.at > SENT_TTL_MS) continue;
-    left.push(o);
+    .map((t) => ({ text: fold(t.text!), files: attachments(t.text!), at: Date.parse(t.at!), used: false }));
+  const sorted = [...out].sort((a, b) => a.at - b.at);
+  const settled = new Set<Outgoing>();
+  const claim = (o: Outgoing, same: (t: (typeof mine)[number]) => boolean) => {
+    const hit = mine.find((t) => !t.used && !(t.at < o.at - SKEW_MS) && same(t));
+    if (!hit) return;
+    hit.used = true;
+    settled.add(o);
+  };
+  // Every text match goes first, so a screenshot never takes another message's turn.
+  for (const o of sorted) {
+    const want = fold(o.text);
+    claim(o, (t) => t.text === want);
   }
-  return left;
+  // Then by screenshot. A failed message goes last: Greg may have edited it and
+  // sent it again with the same screenshot, and the turn is the resend's.
+  for (const o of [...sorted.filter((o) => o.state !== "failed"), ...sorted.filter((o) => o.state === "failed")]) {
+    const files = attachments(o.text);
+    if (files && !settled.has(o)) claim(o, (t) => t.files === files);
+  }
+  return sorted.filter((o) => !settled.has(o) && !(o.state === "sent" && now - o.at > SENT_TTL_MS));
+}
+
+/**
+ * A transcript's blocks with the waiting messages among them, each at its send
+ * time: before the first block stamped after it. Blocks keep their order.
+ */
+export function inSendOrder<B extends { at: string }>(
+  blocks: readonly B[], waiting: readonly Outgoing[],
+): ({ block: B } | { out: Outgoing })[] {
+  const queue = [...waiting].sort((a, b) => a.at - b.at);
+  const rows: ({ block: B } | { out: Outgoing })[] = [];
+  for (const block of blocks) {
+    const at = Date.parse(block.at);
+    while (queue.length && queue[0]!.at < at) rows.push({ out: queue.shift()! });
+    rows.push({ block });
+  }
+  return [...rows, ...queue.map((out) => ({ out }))];
 }
 
 /**

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { boxAfter, BoxWatch, Outbox, SENT_TTL_MS, sendStatus, unsettled, type Outgoing, type Turn } from "../page/ui/outbox";
+import { boxAfter, BoxWatch, inSendOrder, Outbox, SENT_TTL_MS, sendStatus, unsettled, type Outgoing, type Turn } from "../page/ui/outbox";
+import { pageSignature, parseLines } from "../transcript";
 
 const T0 = Date.parse("2026-11-17T22:00:00Z");
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -190,4 +191,81 @@ test("a failed message that was sent again stops counting as failed", () => {
   expect(after.failed).toEqual([]);
   expect(after.held).toEqual([]);
   expect(after.clear).toBe(false);
+});
+
+// TK-013. The transcript lines below have the shapes Claude Code writes for a
+// message the page sent to a live agent. The words are made up.
+
+const SHOT = "[Screenshot: /home/x/.comb/inbox/2026-11-17T21-59-00-000Z-0a1b2c3d.png]";
+const OTHER_SHOT = "[Screenshot: /home/x/.comb/inbox/2026-11-17T21-59-30-000Z-4e5f6a7b.png]";
+/** Pasted from a PDF: hard line breaks, bullets, curly quotes. */
+const LONG = [
+  "I’m reading this and find it fascinating..",
+  "“Managers: highly\npersistent agents.\n• They run for weeks, not little chunks.\n• Think of a “virtual department”, not a “virtual intern.”\n”",
+  "\nWhat would you change about our setup to get there?",
+].join("\n\n");
+/** What the relay's model typed: the same words, straight quotes. */
+const retyped = (s: string) => s.replace(/’/g, "'").replace(/[“”]/g, '"');
+
+const wrapped = (message: string) =>
+  `<cross-session-message from="uds:/tmp/cc-socks/1.sock" from-name="comb-fd" from-mode="prompting">\n`
+  + `${pageSignature("Greg")}\n(Greg reads your answer on the page. Answer in your reply; do not use agent_send for it.)\n\n${message}\n</cross-session-message>`;
+/** Delivered to an idle agent: a meta user line. */
+const idleLine = (message: string, at: number) => JSON.stringify({
+  type: "user", isMeta: true, uuid: `u${at}`, timestamp: iso(at),
+  message: { role: "user", content: `Another Claude session sent a message:\n${wrapped(message)}\n\nThis came from another Claude session.` },
+});
+/** Delivered mid-turn: a queued command, and no user line. */
+const queuedLine = (message: string, at: number) => JSON.stringify({
+  type: "attachment", uuid: `q${at}`, timestamp: iso(at),
+  attachment: { type: "queued_command", commandMode: "prompt", isMeta: true, prompt: wrapped(message) },
+});
+
+for (const [how, line] of [["to an idle agent", idleLine], ["mid-turn", queuedLine]] as const) {
+  test(`a long message with a screenshot, retyped by the relay and delivered ${how}, settles against its turn`, () => {
+    const sent = `${LONG}\n\n${SHOT}`;
+    const events = parseLines([line(retyped(sent), T0 + 6_000)], "greg");
+    expect(events.map((e) => e.k)).toEqual(["in"]);
+    expect(unsettled([out(sent, T0)], events, T0 + 8_000)).toEqual([]);
+  });
+}
+
+test("a long multi-line message with no screenshot settles when the relay straightens its quotes and dashes", () => {
+  const sent = `${LONG}\n\nThe Navier–Stokes run — and the rest…`;
+  const typed = retyped(sent).replace("–", "-").replace("—", "--").replace("…", "...");
+  expect(unsettled([out(sent, T0)], parseLines([idleLine(typed, T0 + 6_000)], "greg"), T0 + 8_000)).toEqual([]);
+});
+
+test("a long message that differs in its words does not settle", () => {
+  const events = parseLines([idleLine(retyped(LONG).replace("weeks", "days"), T0 + 6_000)], "greg");
+  expect(unsettled([out(LONG, T0)], events, T0 + 8_000)).toHaveLength(1);
+});
+
+test("a screenshot settles its message even when the relay changed the words", () => {
+  const events = parseLines([idleLine(`Look at this chart.\n\n${SHOT}`, T0 + 6_000)], "greg");
+  expect(unsettled([out(`Look at this chrat.\n\n${SHOT}`, T0)], events, T0 + 8_000)).toEqual([]);
+  expect(unsettled([out(`Look at this chart.\n\n${OTHER_SHOT}`, T0)], events, T0 + 8_000)).toHaveLength(1);
+  // A turn with only one of two screenshots is not that message.
+  expect(unsettled([out(`Both.\n\n${SHOT}\n\n${OTHER_SHOT}`, T0)], events, T0 + 8_000)).toHaveLength(1);
+});
+
+test("a failed message edited and sent again with the same screenshot leaves the turn to the resend", () => {
+  const failed = out(`First try.\n\n${SHOT}`, T0, "failed");
+  const resent = out(`Second try.\n\n${SHOT}`, T0 + 1_000);
+  const left = unsettled([failed, resent], [turn(`Second try, retyped.\n\n${SHOT}`, T0 + 6_000)], T0 + 8_000);
+  expect(left).toEqual([failed]);
+});
+
+test("a queued background-task notice is not a message", () => {
+  const notice = JSON.stringify({
+    type: "attachment", uuid: "n", timestamp: iso(T0),
+    attachment: { type: "queued_command", commandMode: "task-notification", prompt: "<task-notification>done</task-notification>" },
+  });
+  expect(parseLines([notice], "greg")).toEqual([]);
+});
+
+test("a waiting message sits at its send time, above what came after it", () => {
+  const block = (name: string, at: number) => ({ name, at: iso(at) });
+  const rows = inSendOrder([block("before", T0 - 1_000), block("reply", T0 + 60_000)], [out("late", T0 + 120_000), out("mine", T0)]);
+  expect(rows.map((r) => ("out" in r ? r.out.text : r.block.name))).toEqual(["before", "mine", "reply", "late"]);
 });
