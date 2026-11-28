@@ -553,7 +553,7 @@ main activity.
 - **Cross-person swarms.** comb's state is local files with one writer each,
   and trust here is one person's TRUST.md. Sharing needs identity, access
   control and a server. That is another product.
-- **A rules engine.** The gate checks six facts. Everything else stays
+- **A rules engine.** The gate checks seven facts. Everything else stays
   judgment in charters (design.md principle 1).
 - **Mandates for Greg's own sessions.** D9 holds.
 - **Spending.** No mandate may spend money. A budget counts subscription use
